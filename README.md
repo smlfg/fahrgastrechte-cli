@@ -3,19 +3,29 @@
 CLI für das **Verspätungskonto** — DB-Verspätungsfälle erfassen, sammeln, prüfen
 und Anträge vorbereiten. Den Antrag schickt der Mensch selbst ab.
 
-**Source of truth für die Anforderungen:**
-[`/workspace/fahrgastrechte/ANFORDERUNGEN.md`](../ANFORDERUNGEN.md) (im übergeordneten
-Arbeitsverzeichnis; diese Datei wird im Repo eingecheckt, sobald die
-Implementierung startet).
+**Source of truth für die Anforderungen:** [`docs/ANFORDERUNGEN.md`](docs/ANFORDERUNGEN.md).
 
 ## Status
 
-Phase 0: **Anforderungsanalyse**. Es gibt noch keinen ausführbaren Code.
-Die geplante Architektur ist im Master-Dokument beschrieben.
+MVP-Schritt 1: **Skelett** (Commit `chore: bootstrap fahrgastrechte-cli skeleton`).
+Die Typer-App steht, ``--version``/``--json`` funktionieren, ein ``ping``-Befehl
+liefert Status + Version. Logik (Modelle, Storage, Connectoren, Regeln) kommt
+ab Schritt 2.
 
-## Geplante Architektur (Kurzfassung)
+## Setup
 
-- Sprache: Python 3.11+ (gleicher Stack wie `smlfg/ilias-cli` und `smlfg/ilias-mcp`).
+```bash
+cd fahrgastrechte-cli
+uv sync
+uv run fahrgastrechte --version   # 0.1.0
+uv run fahrgastrechte ping        # Tabelle
+uv run fahrgastrechte ping --json # JSON
+uv run pytest                     # Tests
+```
+
+## Architektur
+
+- Sprache: Python 3.11+ (gleicher Stack wie `smlfg/ilias-cli`).
 - Layout: `src/fahrgastrechte_core/` (Logik, Modelle, Connectoren, Regeln)
   und `src/fahrgastrechte_cli/` (Typer-App, dünne Hülle).
 - Build: `uv` + `hatchling`.
