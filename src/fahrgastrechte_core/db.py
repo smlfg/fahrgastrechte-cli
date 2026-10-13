@@ -104,6 +104,12 @@ _SCHEMA_SQL: tuple[str, ...] = (
         expected_cents  INTEGER NOT NULL,
         cap_applied     INTEGER,
         notes           TEXT,
+        -- Duplikat-Hash laut ANFORDERUNGEN §3 F6: sha256 über
+        -- (service_date, train_number, start_eva, dest_eva, planned_dep).
+        -- Nullable, damit der UNIQUE-Index partiell greifen kann
+        -- (``WHERE dup_hash IS NOT NULL``): ein leerer Hash blockiert
+        -- keine zweite Erfassung, ein vorhandener schon.
+        dup_hash        TEXT,
         created_at      TEXT NOT NULL,
         updated_at      TEXT NOT NULL
     )
@@ -121,11 +127,14 @@ _SCHEMA_SQL: tuple[str, ...] = (
 
 # Indizes laut §4: trips(service_date), trips(train_number, service_date),
 # cases(trip_id), case_status(case_id, at).
+# Zusätzlich für MVP-Schritt 4: cases.DupHash (UNIQUE, partial — Duplikatsschutz F6).
 _INDEX_SQL: tuple[str, ...] = (
     "CREATE INDEX IF NOT EXISTS idx_trips_service_date ON trips(service_date)",
     "CREATE INDEX IF NOT EXISTS idx_trips_train_date ON trips(train_number, service_date)",
     "CREATE INDEX IF NOT EXISTS idx_cases_trip_id ON cases(trip_id)",
     "CREATE INDEX IF NOT EXISTS idx_case_status_case_at ON case_status(case_id, at)",
+    "CREATE UNIQUE INDEX IF NOT EXISTS uq_cases_dup_hash "
+    "ON cases(dup_hash) WHERE dup_hash IS NOT NULL",
 )
 
 # (Stations haben schon einen PK-Index über eva_no; explizite Indizes

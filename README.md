@@ -7,10 +7,15 @@ und Anträge vorbereiten. Den Antrag schickt der Mensch selbst ab.
 
 ## Status
 
-MVP-Schritt 1: **Skelett** (Commit `chore: bootstrap fahrgastrechte-cli skeleton`).
-Die Typer-App steht, ``--version``/``--json`` funktionieren, ein ``ping``-Befehl
-liefert Status + Version. Logik (Modelle, Storage, Connectoren, Regeln) kommt
-ab Schritt 2.
+MVP-Schritte 1–4 fertig:
+
+* **Schritt 1:** Skelett (`chore: bootstrap fahrgastrechte-cli skeleton`)
+* **Schritt 2:** Storage + Pydantic-Modelle + Config + `init` (`feat: storage + pydantic models + config`)
+* **Schritt 3:** DB-Timetables-Connector (gemockt via `respx`) (`feat: db timetables api connector (mocked)`)
+* **Schritt 4:** `add`/`list`/`show`/`trip` inkl. Duplikat-Hash (`feat: case add/list/show + duplicate guard`)
+
+Logik (Modelle, Storage, Connectoren, Regeln) ist im `fahrgastrechte_core`-Paket,
+die CLI ist eine dünne Typer-Hülle.
 
 ## Setup
 

@@ -147,6 +147,11 @@ class Case(_Base):
     expected_cents: int = Field(..., ge=0, description="Berechnete Entschädigung in Cent")
     cap_applied: int | None = Field(default=None, ge=0, description="0 wenn irrelevant")
     notes: str | None = None
+    dup_hash: str | None = Field(
+        default=None,
+        description="SHA-256-Hash über (Datum, Zugnummer, Start-eva, Ziel-eva, planned_dep) "
+        "— Duplikat-Schutz laut §3 F6.",
+    )
     created_at: str
     updated_at: str
 
