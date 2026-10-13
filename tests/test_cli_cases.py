@@ -256,7 +256,7 @@ def test_list_filter_by_status(_isolated_db: Path) -> None:
     with sqlite3.connect(_isolated_db) as conn:
         conn.execute(
             "INSERT INTO case_status(case_id, status, at, note) "
-            "VALUES (1, 'eingereicht', '2026-10-13T10:00:00+02:00', '')"
+            "VALUES (1, 'eingereicht', '2099-12-31T23:59:59+01:00', '')"
         )
         conn.commit()
 

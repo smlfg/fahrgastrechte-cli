@@ -351,7 +351,7 @@ def test_list_cases_filter_by_status(opened: sqlite3.Connection) -> None:
     opened.execute(
         "INSERT INTO case_status(case_id, status, at, note) "
         "VALUES ((SELECT id FROM cases LIMIT 1), 'eingereicht', ?, '')",
-        ("2026-10-13T10:00:00+02:00",),
+        ("2099-12-31T23:59:59+01:00",),
     )
     opened.commit()
 

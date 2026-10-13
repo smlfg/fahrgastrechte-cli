@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import platform
+import sqlite3
 import sys
 from pathlib import Path
 from typing import Any, NoReturn
@@ -22,6 +23,8 @@ from rich.console import Console
 from rich.table import Table
 
 from fahrgastrechte_core import __version__, cases as fc_cases, config as fc_config, db
+from fahrgastrechte_core import rules as fc_rules
+from fahrgastrechte_core import stats as fc_stats
 from fahrgastrechte_core.models import DataQuality, DataSource, TicketType
 from fahrgastrechte_core.timetables import (
     RealtimeKind,
@@ -290,6 +293,59 @@ def _resolve_ticket_type(value: str | None) -> str:
         )
 
 
+def _ticket_price_cents(conn: sqlite3.Connection) -> int:
+    """Liest den konfigurierten Ticket-Preis (Default 4900 Cent)."""
+
+    raw = fc_config.get_config(conn, "ticket_price_cents")
+    if raw is None or raw == "":
+        return int(fc_config.DEFAULT_TICKET_PRICE_CENTS)
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return int(fc_config.DEFAULT_TICKET_PRICE_CENTS)
+
+
+def _apply_rule_if_empty(
+    conn: sqlite3.Connection,
+    *,
+    ticket_type: str,
+    delay_min: int | None,
+    ticket_class: int | None,
+    explicit_expected_cents: int,
+) -> int:
+    """Berechnet ``expected_cents`` per Regel, wenn nicht explizit gesetzt.
+
+    ``explicit_expected_cents != 0`` → vom Menschen vorgegeben, wird
+    unverändert übernommen (Test-Kompatibilität und Override-Möglichkeit).
+    Sonst: ``compute_compensation`` mit ``ticket_price_cents`` aus der
+    Config (oder Default). Bei unbekanntem Ticket-Typ / Regel-Fehler
+    fällt der Betrag auf ``0`` zurück — keine erfundenen Cent-Werte.
+    """
+
+    if explicit_expected_cents != 0:
+        return int(explicit_expected_cents)
+    if delay_min is None:
+        return 0
+    try:
+        delay_int = int(delay_min)
+    except (TypeError, ValueError):
+        return 0
+    if delay_int < 60:
+        return 0
+    klass = int(ticket_class) if ticket_class in (1, 2) else 2
+    price = _ticket_price_cents(conn)
+    try:
+        result = fc_rules.compute_compensation(
+            ticket_type,
+            delay_int,
+            ticket_price_cents=price,
+            travel_class=klass,
+        )
+        return int(result.cents)
+    except ValueError:
+        return 0
+
+
 def _cmd_add(
     *,
     service_date: str,
@@ -322,12 +378,29 @@ def _cmd_add(
     """
 
     db_path = _open_db_or_exit()
+    try:
+        ticket_value = _resolve_ticket_type(ticket_type)
+    except ValueError as ve:
+        console.print(f"[red]Ungültige Eingabe:[/red] {ve}")
+        raise typer.Exit(code=EXIT_INVALID_INPUT) from ve
+
+    # Schritt 5: expected_cents per Regel berechnen, wenn nicht explizit
+    # gesetzt (Test-Kompatibilität: explizite Werte bleiben unangetastet).
+    with db.connect(db_path) as conn:
+        expected_cents = _apply_rule_if_empty(
+            conn,
+            ticket_type=ticket_value,
+            delay_min=delay_min,
+            ticket_class=ticket_class,
+            explicit_expected_cents=expected_cents,
+        )
+
     payload = fc_cases.AddCaseInput(
         service_date=service_date,
         train_number=train,
         start_eva=start_eva,
         dest_eva=dest_eva,
-        ticket_type=_resolve_ticket_type(ticket_type),
+        ticket_type=ticket_value,
         reason_text=reason,
         expected_cents=expected_cents,
         planned_dep=planned_dep,
@@ -568,6 +641,18 @@ def _cmd_trip(
         error_message = f"Unerwarteter Fehler: {exc}"
         data_quality = DataQuality.BEST_EFFORT
 
+    # 1.x) Schritt 5: expected_cents per Regel berechnen, wenn die
+    # Echtzeit-Daten eine Verspätung liefern. Bei ``best_effort`` (keine
+    # Verspätung bekannt) bleibt der Betrag 0.
+    with db.connect(db_path) as conn:
+        expected_cents = _apply_rule_if_empty(
+            conn,
+            ticket_type=ticket_value,
+            delay_min=delay_min_arr,
+            ticket_class=ticket_class,
+            explicit_expected_cents=0,
+        )
+
     # 2) Fall anlegen (mit Trip-Rekonstruktion).
     payload = fc_cases.AddCaseInput(
         service_date=iso_date,
@@ -576,7 +661,7 @@ def _cmd_trip(
         dest_eva=dest_eva,
         ticket_type=ticket_value,
         reason_text=reason or "Rekonstruktion aus DB-Timetables-API",
-        expected_cents=0,  # Schritt 5 ersetzt das durch echte Regel.
+        expected_cents=expected_cents,
         planned_dep=planned_dep,
         actual_dep=actual_dep,
         planned_arr=planned_arr,
@@ -859,6 +944,110 @@ def trip(
         force=force,
         json_output=json_output,
     )
+
+
+def _cmd_calc(*, case_id: int, json_output: bool) -> None:
+    """F5: Entschädigung für einen Fall nach §8 berechnen."""
+
+    db_path = _open_db_or_exit()
+    try:
+        with db.connect(db_path) as conn:
+            result = fc_cases.calc_compensation_for_case(conn, case_id)
+    except fc_cases.CaseNotFoundError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(code=EXIT_ERROR) from exc
+
+    payload: dict[str, Any] = {"case_id": case_id, **result.to_dict()}
+    if json_output:
+        typer.echo(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True))
+        return
+
+    table = Table(
+        title=f"Entschädigung Fall #{case_id}",
+        show_header=True,
+        header_style="bold",
+    )
+    table.add_column("Feld", style="cyan")
+    table.add_column("Wert", style="white")
+    for key, value in payload.items():
+        table.add_row(str(key), str(value))
+    console.print(table)
+
+
+def _cmd_stats(*, month: str | None, json_output: bool) -> None:
+    """F11: Monats-Statistik (Fälle, Summe, Bagatellgrenze, Deckel)."""
+
+    db_path = _open_db_or_exit()
+    try:
+        with db.connect(db_path) as conn:
+            payload = fc_stats.compute_monthly_stats(conn, month=month)
+    except ValueError as exc:
+        console.print(f"[red]Ungültige Eingabe:[/red] {exc}")
+        raise typer.Exit(code=EXIT_INVALID_INPUT) from exc
+
+    if json_output:
+        typer.echo(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True))
+        return
+
+    if month is not None:
+        title = f"Statistik {payload.get('month', month)}"
+        rows = {k: v for k, v in payload.items() if k != "month"}
+        table = Table(title=title, show_header=True, header_style="bold")
+        table.add_column("Kennzahl", style="cyan")
+        table.add_column("Wert", style="white")
+        for key, value in rows.items():
+            table.add_row(str(key), str(value))
+        console.print(table)
+        return
+
+    table = Table(title="fahrgastrechte stats", show_header=True, header_style="bold")
+    table.add_column("Monat", style="cyan")
+    table.add_column("Fälle", justify="right")
+    table.add_column("Erwartet (Cent)", justify="right")
+    table.add_column("Unter 4 €", justify="center")
+    table.add_column("Deckel (Cent)", justify="right")
+    for entry in payload.get("months", []):
+        table.add_row(
+            str(entry["month"]),
+            str(entry["case_count"]),
+            str(entry["expected_cents"]),
+            "ja" if entry["below_threshold"] else "nein",
+            str(entry["cap"]),
+        )
+    totals = payload.get("totals", {})
+    table.add_row(
+        "Σ",
+        str(totals.get("case_count", 0)),
+        str(totals.get("expected_cents", 0)),
+        "ja" if totals.get("below_threshold") else "nein",
+        str(totals.get("cap", 0)),
+        end_section=True,
+    )
+    console.print(table)
+
+
+@app.command()
+def calc(
+    case_id: int = typer.Argument(..., help="ID des Falls."),
+    json_output: bool = JSON_OPTION,
+) -> None:
+    """F5: Entschädigung für einen Fall berechnen (Regeln aus bahn.de §8)."""
+
+    _cmd_calc(case_id=case_id, json_output=json_output)
+
+
+@app.command()
+def stats(
+    month: str | None = typer.Option(
+        None,
+        "--month",
+        help="Kalendermonat (YYYY-MM oder YYYYMM).",
+    ),
+    json_output: bool = JSON_OPTION,
+) -> None:
+    """F11: Statistik pro Monat (Fälle, Summe, Bagatellgrenze, Deckel)."""
+
+    _cmd_stats(month=month, json_output=json_output)
 
 
 def main() -> None:

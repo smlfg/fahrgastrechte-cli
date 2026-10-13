@@ -6,7 +6,15 @@ Hülle über diesen Funktionen; der MCP-Server (``fahrgastrechte-mcp``) wird
 dieselbe Bibliothek vendored.
 """
 
-from . import cases, config, db, models
+from . import cases, config, db, models, rules, stats
 from .version import __version__
 
-__all__ = ["__version__", "cases", "config", "db", "models"]
+__all__ = [
+    "__version__",
+    "cases",
+    "config",
+    "db",
+    "models",
+    "rules",
+    "stats",
+]

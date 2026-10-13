@@ -606,6 +606,99 @@ def _status_history(conn: sqlite3.Connection, case_id: int) -> list[dict[str, An
     ]
 
 
+def calc_compensation_for_case(
+    conn: sqlite3.Connection,
+    case_id: int,
+    *,
+    ticket_price_cents: int | None = None,
+):
+    """Berechnet Entschädigung für einen Fall inkl. Monats-Deckel (F5).
+
+    Berücksichtigt alle **früheren** Fälle im selben Kalendermonat und
+    Ticket-Typ (Reihenfolge: ``service_date``, ``case_id``).
+    """
+
+    from .config import DEFAULT_TICKET_PRICE_CENTS, get_config
+    from .rules import CompensationResult, ReasonCode, compute_compensation
+
+    if ticket_price_cents is None:
+        raw = get_config(conn, "ticket_price_cents")
+        if raw is None:
+            ticket_price_cents = int(DEFAULT_TICKET_PRICE_CENTS)
+        else:
+            try:
+                ticket_price_cents = int(raw)
+            except ValueError:
+                ticket_price_cents = int(DEFAULT_TICKET_PRICE_CENTS)
+
+    rows = conn.execute(
+        "SELECT c.id AS case_id, c.ticket_type, c.ticket_class, "
+        "t.service_date, t.delay_min_arr "
+        "FROM cases c JOIN trips t ON c.trip_id = t.id "
+        "ORDER BY t.service_date ASC, c.id ASC"
+    ).fetchall()
+
+    saldo_by_type: dict[str, int] = {}
+    target: sqlite3.Row | None = None
+    for row in rows:
+        cid = int(row["case_id"])
+        if cid == case_id:
+            target = row
+            break
+        tt = str(row["ticket_type"])
+        delay = row["delay_min_arr"]
+        try:
+            delay_int = int(delay) if delay is not None else 0
+        except (TypeError, ValueError):
+            delay_int = 0
+        klass = row["ticket_class"]
+        try:
+            klass_int = int(klass) if klass is not None else 2
+        except (TypeError, ValueError):
+            klass_int = 2
+        prior = int(saldo_by_type.get(tt, 0))
+        try:
+            step = compute_compensation(
+                tt,
+                delay_int,
+                ticket_price_cents=int(ticket_price_cents),
+                travel_class=klass_int,
+                monthly_total_cents=prior,
+            )
+        except ValueError:
+            step = CompensationResult(
+                cents=0,
+                reason="Unbekannter ticket_type",
+                reason_code=ReasonCode.UNKNOWN_TICKET,
+                cap_applied=0,
+                below_threshold=True,
+            )
+        saldo_by_type[tt] = prior + int(step.cents)
+
+    if target is None:
+        raise CaseNotFoundError(case_id)
+
+    tt = str(target["ticket_type"])
+    delay = target["delay_min_arr"]
+    try:
+        delay_int = int(delay) if delay is not None else 0
+    except (TypeError, ValueError):
+        delay_int = 0
+    klass = target["ticket_class"]
+    try:
+        klass_int = int(klass) if klass is not None else 2
+    except (TypeError, ValueError):
+        klass_int = 2
+    prior = int(saldo_by_type.get(tt, 0))
+    return compute_compensation(
+        tt,
+        delay_int,
+        ticket_price_cents=int(ticket_price_cents),
+        travel_class=klass_int,
+        monthly_total_cents=prior,
+    )
+
+
 def show_case(conn: sqlite3.Connection, case_id: int) -> dict[str, Any]:
     """Liefert den vollständigen Fall-Datensatz.
 
@@ -656,12 +749,17 @@ def show_case(conn: sqlite3.Connection, case_id: int) -> dict[str, Any]:
             "trip_ref": row["trip_ref"],
             "reconstructed_at": row["reconstructed_at"],
             "status_history": history,
-            # Hinweis aus §3 F4 (Schritt 5 ersetzt das durch echte Regel).
-            "expected_reason": _default_expected_reason(
-                int(row["expected_cents"]), row["ticket_type"]
-            ),
         }
     )
+    if row["delay_min_arr"] is not None:
+        comp = calc_compensation_for_case(conn, case_id)
+        base["expected_cents"] = int(comp.cents)
+        base["expected_reason"] = comp.reason
+        base["compensation"] = comp.to_dict()
+    else:
+        base["expected_reason"] = _default_expected_reason(
+            int(row["expected_cents"]), row["ticket_type"]
+        )
     return base
 
 
@@ -687,6 +785,7 @@ __all__ = [
     "compute_dup_hash",
     "find_case_by_hash",
     "add_case",
+    "calc_compensation_for_case",
     "list_cases",
     "show_case",
     "sum_cases",
