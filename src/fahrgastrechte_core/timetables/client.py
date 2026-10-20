@@ -134,8 +134,9 @@ class TimetablesClient:
         if not self.credentials_configured:
             raise AuthenticationError(
                 "DB Timetables Credentials fehlen: "
-                f"{ENV_CLIENT_ID} / {ENV_API_KEY} setzen oder "
-                "explizit übergeben."
+                f"`fahrgastrechte config set db_client_id` / "
+                f"`db_api_key`, {ENV_CLIENT_ID} / {ENV_API_KEY} "
+                "oder explizit übergeben."
             )
         return {
             "DB-Client-Id": self.client_id or "",
