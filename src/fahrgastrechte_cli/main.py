@@ -23,14 +23,13 @@ from rich.console import Console
 from rich.table import Table
 
 from fahrgastrechte_core import __version__, cases as fc_cases, config as fc_config, db
+from fahrgastrechte_core import export as fc_export
 from fahrgastrechte_core import rules as fc_rules
 from fahrgastrechte_core import stats as fc_stats
+from fahrgastrechte_core import status as fc_status
 from fahrgastrechte_core.models import DataQuality, DataSource, TicketType
-from fahrgastrechte_core.timetables import (
-    RealtimeKind,
-    TimetablesClient,
-    TimetablesError,
-)
+from fahrgastrechte_core.timetables import RealtimeKind, TimetablesClient, TimetablesError
+from fahrgastrechte_core.timetables.client import stations_to_dicts
 
 
 app = typer.Typer(
@@ -50,6 +49,12 @@ config_app = typer.Typer(
     no_args_is_help=True,
 )
 app.add_typer(config_app)
+export_app = typer.Typer(
+    name="export",
+    help="Antrags-Vorbereitung als PDF oder CSV (ANFORDERUNGEN §3 F8/F9).",
+    no_args_is_help=True,
+)
+app.add_typer(export_app)
 
 console = Console(stderr=True)
 
@@ -1048,6 +1053,187 @@ def stats(
     """F11: Statistik pro Monat (Fälle, Summe, Bagatellgrenze, Deckel)."""
 
     _cmd_stats(month=month, json_output=json_output)
+
+
+def _cmd_status(
+    *,
+    case_id: int,
+    new_status: str,
+    note: str | None,
+    force: bool,
+    json_output: bool,
+) -> None:
+    """F7: Status-Workflow mit erlaubten Übergängen."""
+
+    db_path = _open_db_or_exit()
+    try:
+        with db.connect(db_path) as conn:
+            payload = fc_status.update_status(
+                conn,
+                case_id,
+                new_status,
+                note=note,
+                force=force,
+            )
+    except fc_cases.CaseNotFoundError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(code=EXIT_ERROR) from exc
+    except (
+        fc_status.InvalidStatusTransitionError,
+        fc_status.StatusNoteRequiredError,
+        ValueError,
+    ) as exc:
+        console.print(f"[red]Ungültige Eingabe:[/red] {exc}")
+        raise typer.Exit(code=EXIT_INVALID_INPUT) from exc
+
+    if json_output:
+        typer.echo(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True))
+        return
+    console.print(
+        f"Fall #{case_id}: Status → {payload.get('current_status')} "
+        f"(vorher siehe `show {case_id}`)"
+    )
+
+
+@app.command()
+def status(
+    case_id: int = typer.Argument(..., help="ID des Falls."),
+    new_status: str = typer.Argument(
+        ...,
+        help="Neuer Status (offen, eingereicht, rueckfrage, …).",
+    ),
+    note: str | None = typer.Option(
+        None, "--note", help="Begründung (Pflicht bei abgelehnt/rueckfrage)."
+    ),
+    force: bool = typer.Option(
+        False,
+        "--force",
+        help="Übergangsregeln überspringen (nur für Ausnahmefälle).",
+    ),
+    json_output: bool = JSON_OPTION,
+) -> None:
+    """F7: Fall-Status im Workflow setzen."""
+
+    _cmd_status(
+        case_id=case_id,
+        new_status=new_status,
+        note=note,
+        force=force,
+        json_output=json_output,
+    )
+
+
+def _parse_ids(raw: str) -> list[int]:
+    parts = [p.strip() for p in (raw or "").split(",") if p.strip()]
+    if not parts:
+        raise ValueError("--ids: mindestens eine Fall-ID angeben.")
+    ids: list[int] = []
+    for part in parts:
+        try:
+            ids.append(int(part))
+        except ValueError as exc:
+            raise ValueError(f"Ungültige Fall-ID {part!r}") from exc
+    return ids
+
+
+@export_app.command("csv")
+def export_csv_cmd(
+    output: Path = typer.Option(
+        ...,
+        "-o",
+        "--output",
+        help="Ziel-CSV-Datei.",
+    ),
+    status_filter: str | None = typer.Option(
+        None, "--status", help="Nur Fälle mit diesem Status exportieren."
+    ),
+    json_output: bool = JSON_OPTION,
+) -> None:
+    """F9: Fälle als CSV für das DB-Kundenkonto exportieren."""
+
+    db_path = _open_db_or_exit()
+    with db.connect(db_path) as conn:
+        result = fc_export.export_csv(
+            conn, output, status=status_filter
+        )
+    if json_output:
+        typer.echo(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True))
+        return
+    console.print(f"CSV geschrieben: {result['path']} ({result['rows']} Zeilen)")
+
+
+@export_app.command("pdf")
+def export_pdf_cmd(
+    output: Path = typer.Option(
+        ...,
+        "-o",
+        "--output",
+        help="Ziel-PDF-Datei.",
+    ),
+    ids: str = typer.Option(
+        ...,
+        "--ids",
+        help="Komma-getrennte Fall-IDs, z. B. 1,2,3.",
+    ),
+    json_output: bool = JSON_OPTION,
+) -> None:
+    """F8: Druckfertiges Antrags-PDF mit Stammdaten und Fällen."""
+
+    db_path = _open_db_or_exit()
+    try:
+        case_ids = _parse_ids(ids)
+    except ValueError as exc:
+        console.print(f"[red]Ungültige Eingabe:[/red] {exc}")
+        raise typer.Exit(code=EXIT_INVALID_INPUT) from exc
+    try:
+        with db.connect(db_path) as conn:
+            result = fc_export.export_pdf(conn, output, case_ids)
+    except fc_cases.CaseNotFoundError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(code=EXIT_ERROR) from exc
+    except ValueError as exc:
+        console.print(f"[red]Ungültige Eingabe:[/red] {exc}")
+        raise typer.Exit(code=EXIT_INVALID_INPUT) from exc
+
+    if json_output:
+        typer.echo(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True))
+        return
+    console.print(
+        f"PDF geschrieben: {result['path']} "
+        f"({result['size']} Bytes, {result['cases']} Fälle)"
+    )
+
+
+@app.command()
+def station(
+    pattern: str = typer.Argument(..., help="Suchbegriff, z. B. Stuttgart."),
+    json_output: bool = JSON_OPTION,
+) -> None:
+    """Stationssuche über die DB-Timetables-API (§5)."""
+
+    try:
+        client = _build_timetables_client()
+        with client:
+            stations = client.search_station(pattern)
+    except TimetablesError as exc:
+        console.print(f"[red]Datenquelle:[/red] {exc}")
+        raise typer.Exit(code=EXIT_NETWORK) from exc
+    except ValueError as exc:
+        console.print(f"[red]Ungültige Eingabe:[/red] {exc}")
+        raise typer.Exit(code=EXIT_INVALID_INPUT) from exc
+
+    payload = {"stations": stations_to_dicts(stations)}
+    if json_output:
+        typer.echo(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True))
+        return
+
+    table = Table(title=f"Stationen: {pattern}", show_header=True, header_style="bold")
+    table.add_column("EVA", justify="right")
+    table.add_column("Name")
+    table.add_column("DS100")
+    for s in stations:
+        table.add_row(str(s.eva_no), s.name, s.ds100 or "")
+    console.print(table)
 
 
 def main() -> None:

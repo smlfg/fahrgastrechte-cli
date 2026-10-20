@@ -48,7 +48,6 @@ _log = logging.getLogger(__name__)
 # Feste Zeitzone für alle Zeitstempel (ANFORDERUNGEN §9 N4).
 BERLIN = ZoneInfo("Europe/Berlin")
 
-
 # ----------------------------------------------------------- Fehler
 class CaseNotFoundError(LookupError):
     """Ein ``case_id`` existiert nicht."""
@@ -535,8 +534,9 @@ def list_cases(
     joins = (
         "FROM cases c "
         "JOIN trips t ON c.trip_id = t.id "
-        "LEFT JOIN case_status cs ON cs.case_id = c.id "
-        "AND cs.at = (SELECT MAX(at) FROM case_status WHERE case_id = c.id)"
+        "LEFT JOIN case_status cs ON cs.rowid = ("
+        "SELECT rowid FROM case_status WHERE case_id = c.id "
+        "ORDER BY at DESC, rowid DESC LIMIT 1)"
     )
 
     if status:
@@ -728,7 +728,7 @@ def show_case(conn: sqlite3.Connection, case_id: int) -> dict[str, Any]:
     # Aktueller Status = jüngster case_status-Eintrag.
     cur = conn.execute(
         "SELECT status, at FROM case_status WHERE case_id = ? "
-        "ORDER BY at DESC LIMIT 1",
+        "ORDER BY at DESC, rowid DESC LIMIT 1",
         (case_id,),
     ).fetchone()
     current_status = cur["status"] if cur else CaseStatusName.OFFEN.value
