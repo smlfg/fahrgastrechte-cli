@@ -266,16 +266,22 @@ def _validate_date(value: str, flag: str) -> str:
         raise ValueError(f"{flag}: {exc}") from exc
 
 
-def _build_timetables_client() -> TimetablesClient:
+def _build_timetables_client(db_path: Path) -> TimetablesClient:
     """Factory für den Timetables-Client.
 
-    Wird beim ``trip``-Befehl benutzt. Indem wir die Konstruktion in eine
-    eigene Funktion kapseln, können Tests per ``monkeypatch`` einen
-    respx-gemockten Client einsetzen, ohne die Env-Variablen zu setzen
-    oder echtes HTTP zuzulassen.
+    Wird beim ``trip``-Befehl benutzt. Liest DB-Timetables-Credentials aus
+    der Konfiguration (``config set`` / Keyring, ANFORDERUNGEN §7); fehlende
+    Werte fallen im Client auf Env-Variablen zurück. Indem wir die
+    Konstruktion in eine eigene Funktion kapseln, können Tests per
+    ``monkeypatch`` einen respx-gemockten Client einsetzen.
     """
 
+    with db.connect(db_path) as conn:
+        client_id = fc_config.get_config(conn, "db_client_id")
+        api_key = fc_config.get_config(conn, "db_api_key")
     return TimetablesClient(
+        client_id=client_id,
+        api_key=api_key,
         rate_per_minute=30,  # ANFORDERUNGEN §9 N2: selbstauferlegt
     )
 
@@ -594,7 +600,7 @@ def _cmd_trip(
     error_message: str | None = None
 
     try:
-        client = _build_timetables_client()
+        client = _build_timetables_client(db_path)
         with client:
             rt = client.get_realtime_changes(dest_eva, kind=RealtimeKind.RCHG)
             stop = _match_train(rt, train)

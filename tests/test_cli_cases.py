@@ -346,7 +346,7 @@ def _patch_client_factory(client):
 
     from fahrgastrechte_cli import main as cli_main
 
-    def factory() -> client:  # type: ignore[valid-type]
+    def factory(_db_path: Path) -> client:  # type: ignore[valid-type]
         return client
 
     return cli_main, factory
