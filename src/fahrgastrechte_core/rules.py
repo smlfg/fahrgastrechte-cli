@@ -280,9 +280,21 @@ def compute_compensation(
         rule = _PAUSCHALEN[tt]
         classes: Mapping[int, int] = rule["classes"]  # type: ignore[assignment]
         label: str = rule["label"]  # type: ignore[assignment]
-        flat = int(classes[klass])
-        # Klassen-spezifische Quelle (für Tests/JSON-Audit).
         source = str(rule["source"])
+        if klass not in classes:
+            allowed = ", ".join(f"{k}. Kl." for k in sorted(classes))
+            return CompensationResult(
+                cents=0,
+                reason=(
+                    f"{label}: Keine Pauschale für {klass}. Klasse — "
+                    f"nur {allowed} vorgesehen (§3 EVO). "
+                    f"[Quelle: {source}]"
+                ),
+                reason_code=ReasonCode.UNKNOWN_TICKET,
+                cap_applied=cap,
+                below_threshold=False,
+            )
+        flat = int(classes[klass])
 
         # Cap-Anwendung: wenn der Monats-Deckel bereits überschritten ist,
         # gibt es für diesen Fall nichts mehr; sonst auf Rest begrenzen.
