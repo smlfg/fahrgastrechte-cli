@@ -404,6 +404,45 @@ def test_trip_reconstructs_case_from_api(
     assert payload["case_id"] == 1
 
 
+def test_trip_uses_config_credentials_without_env(
+    mocked_timetables,
+    _isolated_db: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``config set``-Credentials müssen für ``trip`` gelten (ohne Env-Vars)."""
+
+    monkeypatch.delenv("FAHRGASTRECHTE_DB_CLIENT_ID", raising=False)
+    monkeypatch.delenv("FAHRGASTRECHTE_DB_API_KEY", raising=False)
+
+    _init_db(_isolated_db)
+    for key, value in (("db_client_id", "cfg-client"), ("db_api_key", "cfg-key")):
+        set_result = runner.invoke(app, ["config", "set", key, value])
+        assert set_result.exit_code == 0, set_result.output
+
+    mocked_timetables.get("/rchg/8000105").respond(200, content=RCHG_DELAYED)
+
+    result = runner.invoke(
+        app,
+        [
+            "trip",
+            "--date",
+            "2026-10-13",
+            "--train",
+            "12345",
+            "--start-eva",
+            "8000096",
+            "--dest-eva",
+            "8000105",
+            "--json",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["data_quality"] == "verified"
+    assert payload["data_source"] == "timetables_api"
+    assert "warning" not in payload
+
+
 def test_trip_api_error_marks_best_effort(
     mocked_timetables,
     _isolated_db: Path,
