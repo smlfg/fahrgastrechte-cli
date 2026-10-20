@@ -414,6 +414,42 @@ def test_show_case_unknown_id_raises(opened: sqlite3.Connection) -> None:
     assert exc_info.value.case_id == 999
 
 
+# ----------------------------------------------------------- calc_compensation (F5)
+def test_calc_compensation_monthly_cap_resets_each_calendar_month(
+    opened: sqlite3.Connection,
+) -> None:
+    """September-Deckel darf den Oktober-Fall nicht auf 0 Cent drücken (#2)."""
+
+    from fahrgastrechte_core import config as fc_config
+
+    fc_config.set_config(opened, "ticket_price_cents", "4900")
+    for day in range(1, 10):
+        fc_cases.add_case(
+            opened,
+            _basic_input(
+                service_date=f"2026-09-{day:02d}",
+                train_number=f"90{day}",
+                reason_text="sept",
+                delay_min_arr=60,
+                expected_cents=0,
+            ),
+        )
+    oct = fc_cases.add_case(
+        opened,
+        _basic_input(
+            service_date="2026-10-12",
+            train_number="1001",
+            reason_text="okt",
+            delay_min_arr=60,
+            expected_cents=0,
+        ),
+    )
+    result = fc_cases.calc_compensation_for_case(opened, oct.case_id)
+    assert result.cents == 150
+    payload = fc_cases.show_case(opened, oct.case_id)
+    assert payload["expected_cents"] == 150
+
+
 # ----------------------------------------------------------- UNIQUE-Constraint
 def test_db_unique_index_blocks_duplicate_at_sql_level(
     opened: sqlite3.Connection,
