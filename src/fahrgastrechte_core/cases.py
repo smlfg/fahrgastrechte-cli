@@ -631,12 +631,22 @@ def calc_compensation_for_case(
             except ValueError:
                 ticket_price_cents = int(DEFAULT_TICKET_PRICE_CENTS)
 
+    from .stats import _service_month
+
     rows = conn.execute(
         "SELECT c.id AS case_id, c.ticket_type, c.ticket_class, "
         "t.service_date, t.delay_min_arr "
         "FROM cases c JOIN trips t ON c.trip_id = t.id "
         "ORDER BY t.service_date ASC, c.id ASC"
     ).fetchall()
+
+    target_month: str | None = None
+    for row in rows:
+        if int(row["case_id"]) == case_id:
+            target_month = _service_month(str(row["service_date"]))
+            break
+    if target_month is None:
+        raise CaseNotFoundError(case_id)
 
     saldo_by_type: dict[str, int] = {}
     target: sqlite3.Row | None = None
@@ -645,6 +655,8 @@ def calc_compensation_for_case(
         if cid == case_id:
             target = row
             break
+        if _service_month(str(row["service_date"])) != target_month:
+            continue
         tt = str(row["ticket_type"])
         delay = row["delay_min_arr"]
         try:
