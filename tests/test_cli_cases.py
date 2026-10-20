@@ -96,6 +96,35 @@ def test_add_creates_row_in_db(_isolated_db: Path) -> None:
         assert cents == 150
 
 
+@pytest.mark.parametrize(
+    "service_date",
+    ["2026-13-45", "2026-02-31"],
+)
+def test_add_invalid_service_date_returns_exit_three(
+    _isolated_db: Path,
+    service_date: str,
+) -> None:
+    _init_db(_isolated_db)
+    result = runner.invoke(
+        app,
+        [
+            "add",
+            "--service-date",
+            service_date,
+            "--train",
+            "777",
+            "--start-eva",
+            "8000096",
+            "--dest-eva",
+            "8000105",
+            "--reason",
+            "kaputt",
+            "--json",
+        ],
+    )
+    assert result.exit_code == EXIT_INVALID_INPUT, result.output
+
+
 def test_add_missing_required_field_returns_exit_three(
     _isolated_db: Path,
 ) -> None:

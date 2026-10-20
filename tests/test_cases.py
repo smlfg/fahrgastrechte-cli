@@ -176,6 +176,22 @@ def test_dup_hash_rejects_garbage_date() -> None:
         )
 
 
+@pytest.mark.parametrize(
+    "service_date",
+    [
+        "2026-13-45",
+        "2026-02-31",
+        "20260231",
+        "20261345",
+    ],
+)
+def test_normalise_date_rejects_impossible_calendar_dates(
+    service_date: str,
+) -> None:
+    with pytest.raises(ValueError, match="Ungültiges service_date"):
+        fc_cases._normalise_date(service_date)
+
+
 def test_dup_hash_none_planned_dep_is_stable() -> None:
     """Ohne ``planned_dep`` muss derselbe Hash herauskommen."""
 

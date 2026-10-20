@@ -6,6 +6,8 @@ Deckel 25 % des Ticketpreises (58 € → 14,50 €).
 
 from __future__ import annotations
 
+import pytest
+
 from fahrgastrechte_core import cases as fc_cases, db, stats as fc_stats
 from fahrgastrechte_core.models import TicketType
 from fahrgastrechte_core.rules import (
@@ -183,3 +185,9 @@ def test_calc_cli_json(tmp_path, monkeypatch) -> None:
     payload = json.loads(result.stdout)
     assert payload["cents"] == 150
     assert payload["below_threshold"] is True
+
+
+@pytest.mark.parametrize("month", ["2026-99", "202699"])
+def test_normalise_month_rejects_invalid_month(month: str) -> None:
+    with pytest.raises(ValueError, match="Ungültiger month-pattern"):
+        fc_stats._normalise_month(month)

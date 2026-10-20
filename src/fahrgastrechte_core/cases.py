@@ -88,11 +88,19 @@ def _normalise_date(service_date: str) -> str:
     """
 
     s = (service_date or "").strip()
+    iso_candidate: str | None = None
     if len(s) == 10 and s[4] == "-" and s[7] == "-":
-        return s
-    if len(s) == 8 and s.isdigit():
-        return f"{s[0:4]}-{s[4:6]}-{s[6:8]}"
-    # Letzter Versuch: parse als ISO.
+        iso_candidate = s
+    elif len(s) == 8 and s.isdigit():
+        iso_candidate = f"{s[0:4]}-{s[4:6]}-{s[6:8]}"
+    if iso_candidate is not None:
+        try:
+            return datetime.strptime(iso_candidate, "%Y-%m-%d").date().isoformat()
+        except ValueError as exc:
+            raise ValueError(
+                f"Ungültiges service_date {service_date!r} "
+                "(erwartet YYYY-MM-DD oder YYYYMMDD)"
+            ) from exc
     try:
         return datetime.strptime(s, "%Y-%m-%d").date().isoformat()
     except ValueError as exc:

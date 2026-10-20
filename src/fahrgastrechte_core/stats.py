@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import sqlite3
 from collections import defaultdict
+from datetime import datetime
 from typing import Any, Iterable
 
 from .models import TicketType
@@ -40,13 +41,22 @@ def _normalise_month(month: str) -> str:
     """Akzeptiert 'YYYY-MM' oder 'YYYYMM'."""
 
     s = (month or "").strip()
+    ym: str | None = None
     if len(s) == 7 and s[4] == "-":
-        return s
-    if len(s) == 6 and s.isdigit():
-        return f"{s[0:4]}-{s[4:6]}"
-    raise ValueError(
-        f"Ungültiger month-pattern -- {month!r} (erwartet YYYY-MM oder YYYYMM)"
-    )
+        ym = s
+    elif len(s) == 6 and s.isdigit():
+        ym = f"{s[0:4]}-{s[4:6]}"
+    else:
+        raise ValueError(
+            f"Ungültiger month-pattern -- {month!r} (erwartet YYYY-MM oder YYYYMM)"
+        )
+    try:
+        parsed = datetime.strptime(f"{ym}-01", "%Y-%m-%d")
+    except ValueError as exc:
+        raise ValueError(
+            f"Ungültiger month-pattern -- {month!r} (erwartet YYYY-MM oder YYYYMM)"
+        ) from exc
+    return parsed.strftime("%Y-%m")
 
 
 def _service_month(service_date: str) -> str | None:
