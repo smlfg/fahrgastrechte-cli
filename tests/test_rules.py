@@ -37,6 +37,46 @@ def test_d_ticket_59_min_no_claim() -> None:
     assert r.below_threshold is False
 
 
+def test_d_ticket_class_1_delay_60_no_pauschale() -> None:
+    """D-Ticket-Pauschale gilt nur 2. Kl.; 1. Kl. darf keinen KeyError werfen."""
+    r = compute_compensation(
+        TicketType.D_TICKET,
+        60,
+        ticket_price_cents=4900,
+        travel_class=1,
+    )
+    assert r.cents == 0
+    assert "2" in r.reason
+
+
+def test_aggregate_cases_d_ticket_class_1_no_crash(tmp_path) -> None:
+    """DB-Fall mit d_ticket + 1. Kl. darf stats nicht crashen (Issue #1)."""
+    db_path = tmp_path / "konto.db"
+    db.init_db(db_path)
+    with db.connect(db_path) as conn:
+        fc_cases.add_case(
+            conn,
+            fc_cases.AddCaseInput(
+                service_date="2026-10-02",
+                train_number="502",
+                start_eva=8000096,
+                dest_eva=8000105,
+                ticket_type=TicketType.D_TICKET.value,
+                ticket_class=1,
+                reason_text="x",
+                expected_cents=100,
+                delay_min_arr=60,
+            ),
+        )
+        buckets = fc_stats.aggregate_cases(
+            fc_stats._case_rows(conn),
+            ticket_price_cents=4900,
+            month="2026-10",
+        )
+    assert buckets["2026-10"]["expected_cents"] == 0
+    assert buckets["2026-10"]["case_count"] == 1
+
+
 def test_five_cases_sum_750_above_bagatellgrenze() -> None:
     saldo = 0
     for _ in range(5):

@@ -70,6 +70,17 @@ def test_add_happy_path_returns_zero(_isolated_db: Path) -> None:
     assert "Fall #1 angelegt" in result.output or "case_id" in result.output
 
 
+def test_add_d_ticket_class_1_delay_60_no_crash(_isolated_db: Path) -> None:
+    _init_db(_isolated_db)
+    result = _add_basic(
+        ticket_type="d_ticket",
+        ticket_class=1,
+        delay_min=60,
+    )
+    assert result.exit_code == 0, result.output
+    assert "KeyError" not in result.output
+
+
 def test_add_creates_row_in_db(_isolated_db: Path) -> None:
     _init_db(_isolated_db)
     _add_basic(expected_cents=150)
