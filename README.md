@@ -7,12 +7,14 @@ und Anträge vorbereiten. Den Antrag schickt der Mensch selbst ab.
 
 ## Status
 
-MVP-Schritte 1–4 fertig:
+MVP-Schritte 1–6 fertig:
 
 * **Schritt 1:** Skelett (`chore: bootstrap fahrgastrechte-cli skeleton`)
 * **Schritt 2:** Storage + Pydantic-Modelle + Config + `init` (`feat: storage + pydantic models + config`)
 * **Schritt 3:** DB-Timetables-Connector (gemockt via `respx`) (`feat: db timetables api connector (mocked)`)
 * **Schritt 4:** `add`/`list`/`show`/`trip` inkl. Duplikat-Hash (`feat: case add/list/show + duplicate guard`)
+* **Schritt 5:** Entschädigungsregeln + `calc`/`stats` (`feat: compensation rules + calc/stats`)
+* **Schritt 6:** `status`/`export pdf`/`export csv`/`station` (F7/F8/F9)
 
 Logik (Modelle, Storage, Connectoren, Regeln) ist im `fahrgastrechte_core`-Paket,
 die CLI ist eine dünne Typer-Hülle.
