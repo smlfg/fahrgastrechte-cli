@@ -20,7 +20,8 @@ ableiten, nicht ``verified``.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime
+from zoneinfo import ZoneInfo
 from enum import StrEnum
 from typing import Any, Iterable
 from xml.etree import ElementTree as ET
@@ -29,9 +30,9 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from .errors import ParserError
 
-# Europäische Berliner Zeit als naive UTC-Anker (DB gibt lokale Zeiten ohne
-# expliziten Offset aus; wir markieren sie als Europe/Berlin, ANFORDERUNGEN N4).
-BERLIN_TZ = timezone.utc  # Platzhalter; bei korrektem Offset später austauschbar
+# IRIS liefert lokale Berliner Wandzeit ohne Offset; wir taggen sie direkt mit
+# Europe/Berlin (ANFORDERUNGEN §9 N4).
+BERLIN_TZ = ZoneInfo("Europe/Berlin")
 
 
 class RealtimeKind(StrEnum):
@@ -166,10 +167,8 @@ def _children_by_localname(elem: ET.Element, name: str) -> list[ET.Element]:
 def parse_yymmddhhmm(value: str) -> datetime:
     """IRIS-Zeitformat ``YYMMDDHHmm`` (z. B. ``2610131430``).
 
-    Wird als naive UTC-Zeit interpretiert — die Timetables-API gibt
-    lokale Berliner Zeit ohne expliziten Offset aus. ANFORDERUNGEN §9
-    N4 verlangt ``Europe/Berlin``-Ausgabe; die Formatierung passiert
-    beim Rendern, hier bleibt es maschinenlesbar (UTC-Anker).
+    Die Timetables-API gibt lokale Berliner Wandzeit ohne Offset aus;
+    wir setzen ``tzinfo=Europe/Berlin`` (ANFORDERUNGEN §9 N4).
     """
 
     if not value or len(value) != 10 or not value.isdigit():
@@ -186,7 +185,7 @@ def parse_yymmddhhmm(value: str) -> datetime:
     # 2-stellige Jahreszahl: DB-Konvention ist 20YY.
     year = 2000 + yy
     try:
-        return datetime(year, mm, dd, hh, mn, tzinfo=timezone.utc)
+        return datetime(year, mm, dd, hh, mn, tzinfo=BERLIN_TZ)
     except ValueError as exc:
         raise ParserError(f"Ungültiges IRIS-Datum/Zeit: {value!r} ({exc})") from exc
 
