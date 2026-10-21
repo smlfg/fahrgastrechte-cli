@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 
 import pytest
+
+BERLIN = ZoneInfo("Europe/Berlin")
 
 from fahrgastrechte_core.timetables import (
     ParserError,
@@ -20,6 +23,13 @@ from fahrgastrechte_core.timetables import (
 def test_yymmddhhmm_parses_well_formed_value() -> None:
     dt = parse_yymmddhhmm("2610131430")
     assert dt == datetime(2026, 10, 13, 14, 30, tzinfo=timezone.utc)
+
+
+def test_yymmddhhmm_interprets_iris_wall_clock_as_europe_berlin() -> None:
+    """IRIS ``pt``/``ct`` sind lokale Berliner Zeit ohne Offset (Issue #6)."""
+
+    dt = parse_yymmddhhmm("2610131500")
+    assert dt == datetime(2026, 10, 13, 15, 0, tzinfo=BERLIN)
 
 
 @pytest.mark.parametrize("bad", ["", "1", "a" * 10, "261013143X", "26101"])

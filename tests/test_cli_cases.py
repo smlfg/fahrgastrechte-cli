@@ -340,6 +340,15 @@ RCHG_DELAYED = b"""<?xml version="1.0" encoding="UTF-8"?>
 </Timetable>
 """
 
+RCHG_ON_TIME_4711 = b"""<?xml version="1.0" encoding="UTF-8"?>
+<timetable station="Frankfurt(Main)Hbf" eva="8000105">
+  <s id="9876543210" eva="8000105">
+    <tl f="F" t="p" o="80" n="4711" c="RE"/>
+    <ar pt="2610131500" pp="5" cp="5"/>
+  </s>
+</timetable>
+"""
+
 
 def _patch_client_factory(client):
     """Monkeypatch-Helfer: ersetzt ``_build_timetables_client``."""
@@ -402,6 +411,45 @@ def test_trip_reconstructs_case_from_api(
     assert payload["data_quality"] == "verified"
     assert payload["data_source"] == "timetables_api"
     assert payload["case_id"] == 1
+
+
+def test_trip_planned_arr_matches_iris_local_berlin_wall_clock(
+    mocked_timetables,
+    _isolated_db: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``pt=2610131500`` ist 15:00 Berlin — nicht +2 h durch UTC-Fehlinterpretation (#6)."""
+
+    monkeypatch.setenv("FAHRGASTRECHTE_DB_CLIENT_ID", "cid")
+    monkeypatch.setenv("FAHRGASTRECHTE_DB_API_KEY", "key")
+
+    client = _make_mock_client(rate=10000, backoff=0.0)
+    cli_main, factory = _patch_client_factory(client)
+    monkeypatch.setattr(cli_main, "_build_timetables_client", factory)
+
+    mocked_timetables.get("/rchg/8000105").respond(200, content=RCHG_ON_TIME_4711)
+
+    _init_db(_isolated_db)
+    result = runner.invoke(
+        app,
+        [
+            "trip",
+            "--date",
+            "2026-10-13",
+            "--train",
+            "4711",
+            "--start-eva",
+            "8000096",
+            "--dest-eva",
+            "8000105",
+            "--json",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["planned_arr"] == "2026-10-13T15:00+02:00"
+    assert payload["actual_arr"] == "2026-10-13T15:00+02:00"
+    assert payload["delay_min_arr"] == 0
 
 
 def test_trip_api_error_marks_best_effort(
