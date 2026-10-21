@@ -628,11 +628,12 @@ def _cmd_trip(
                 if tl.owner:
                     evu = tl.owner
                 trip_ref = stop.id
-            data_source = DataSource.TIMETABLES_API
-            if delay_min_arr is None or planned_arr is None or actual_arr is None:
-                data_quality = DataQuality.BEST_EFFORT
-            else:
-                data_quality = DataQuality.VERIFIED
+            if stop is not None:
+                data_source = DataSource.TIMETABLES_API
+                if delay_min_arr is None or planned_arr is None or actual_arr is None:
+                    data_quality = DataQuality.BEST_EFFORT
+                else:
+                    data_quality = DataQuality.VERIFIED
             line = line  # bleibt None — IRIS liefert kein Linien-Feld im /rchg
     except TimetablesError as exc:
         error_message = f"{type(exc).__name__}: {exc}"
