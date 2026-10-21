@@ -413,6 +413,75 @@ def test_trip_reconstructs_case_from_api(
     assert payload["case_id"] == 1
 
 
+def test_trip_persists_reconstruction_when_trip_key_exists(
+    mocked_timetables,
+    _isolated_db: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``add`` legt manuellen Trip an; ``trip`` muss dieselbe Zeile aktualisieren (#8)."""
+
+    monkeypatch.setenv("FAHRGASTRECHTE_DB_CLIENT_ID", "cid")
+    monkeypatch.setenv("FAHRGASTRECHTE_DB_API_KEY", "key")
+
+    client = _make_mock_client(rate=10000, backoff=0.0)
+    cli_main, factory = _patch_client_factory(client)
+    monkeypatch.setattr(cli_main, "_build_timetables_client", factory)
+
+    mocked_timetables.get("/rchg/8000105").respond(200, content=RCHG_DELAYED)
+
+    _init_db(_isolated_db)
+    add_result = runner.invoke(
+        app,
+        [
+            "add",
+            "--service-date",
+            "2026-10-15",
+            "--train",
+            "12345",
+            "--start-eva",
+            "8000096",
+            "--dest-eva",
+            "8000105",
+            "--reason",
+            "Manuell erfasst",
+            "--json",
+        ],
+    )
+    assert add_result.exit_code == 0, add_result.output
+    add_payload = json.loads(add_result.output)
+
+    trip_result = runner.invoke(
+        app,
+        [
+            "trip",
+            "--date",
+            "2026-10-15",
+            "--train",
+            "12345",
+            "--start-eva",
+            "8000096",
+            "--dest-eva",
+            "8000105",
+            "--json",
+        ],
+    )
+    assert trip_result.exit_code == 0, trip_result.output
+    trip_payload = json.loads(trip_result.output)
+    assert trip_payload["trip_id"] == add_payload["trip_id"]
+    assert trip_payload["delay_min_arr"] == 65
+    assert trip_payload["data_quality"] == "verified"
+
+    show_result = runner.invoke(
+        app, ["show", str(trip_payload["case_id"]), "--json"]
+    )
+    assert show_result.exit_code == 0, show_result.output
+    show_payload = json.loads(show_result.output)
+    assert show_payload["delay_min_arr"] == 65
+    assert show_payload["data_quality"] == "verified"
+    assert show_payload["data_source"] == "timetables_api"
+    assert show_payload["planned_arr"] is not None
+
+
 def test_trip_planned_arr_matches_iris_local_berlin_wall_clock(
     mocked_timetables,
     _isolated_db: Path,

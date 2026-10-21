@@ -268,6 +268,49 @@ def _insert_trip(
     return _lastrowid(cur)
 
 
+def _update_trip(
+    conn: sqlite3.Connection,
+    trip_id: int,
+    *,
+    planned_dep: str | None,
+    actual_dep: str | None,
+    planned_arr: str | None,
+    actual_arr: str | None,
+    delay_min_arr: int | None,
+    category: str | None,
+    line: str | None,
+    evu: str | None,
+    trip_ref: str | None,
+    data_source: DataSource,
+    data_quality: DataQuality,
+    reconstructed_at: str | None,
+) -> None:
+    """Aktualisiert eine bestehende Trip-Zeile nach erfolgreicher Rekonstruktion."""
+
+    conn.execute(
+        "UPDATE trips SET "
+        "planned_dep = ?, planned_arr = ?, actual_dep = ?, actual_arr = ?, "
+        "delay_min_arr = ?, category = ?, line = ?, evu = ?, trip_ref = ?, "
+        "data_source = ?, data_quality = ?, reconstructed_at = ? "
+        "WHERE id = ?",
+        (
+            planned_dep,
+            planned_arr,
+            actual_dep,
+            actual_arr,
+            delay_min_arr,
+            category,
+            line,
+            evu,
+            trip_ref,
+            data_source.value,
+            data_quality.value,
+            reconstructed_at,
+            trip_id,
+        ),
+    )
+
+
 # ----------------------------------------------------------- Anlegen
 @dataclass
 class AddCaseInput:
@@ -406,6 +449,23 @@ def add_case(conn: sqlite3.Connection, payload: AddCaseInput) -> AddCaseResult:
                 if payload.data_source != DataSource.MANUAL
                 else None
             ),
+        )
+    elif payload.data_source != DataSource.MANUAL:
+        _update_trip(
+            conn,
+            trip_id,
+            planned_dep=payload.planned_dep,
+            actual_dep=payload.actual_dep,
+            planned_arr=payload.planned_arr,
+            actual_arr=payload.actual_arr,
+            delay_min_arr=payload.delay_min_arr,
+            category=payload.category,
+            line=payload.line,
+            evu=payload.evu,
+            trip_ref=payload.trip_ref,
+            data_source=payload.data_source,
+            data_quality=payload.data_quality,
+            reconstructed_at=payload.reconstructed_at,
         )
 
     # 4) Case einfügen ODER (force + Duplikat) überschreiben.
