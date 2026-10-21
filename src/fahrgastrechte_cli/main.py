@@ -15,6 +15,8 @@ import json
 import platform
 import sqlite3
 import sys
+from datetime import date as Date
+from datetime import datetime
 from pathlib import Path
 from typing import Any, NoReturn
 
@@ -27,10 +29,12 @@ from fahrgastrechte_core import rules as fc_rules
 from fahrgastrechte_core import stats as fc_stats
 from fahrgastrechte_core.models import DataQuality, DataSource, TicketType
 from fahrgastrechte_core.timetables import (
+    NotFoundError,
     RealtimeKind,
     TimetablesClient,
     TimetablesError,
 )
+from fahrgastrechte_core.timetables.models import ParsedStop, StopEvent
 
 
 app = typer.Typer(
@@ -594,41 +598,40 @@ def _cmd_trip(
     error_message: str | None = None
 
     try:
+        service_day = Date.fromisoformat(iso_date)
+        use_realtime = service_day == _berlin_today_date()
         client = _build_timetables_client()
         with client:
-            rt = client.get_realtime_changes(dest_eva, kind=RealtimeKind.RCHG)
-            stop = _match_train(rt, train)
-            if stop is not None and stop.arrival is not None:
-                arr = stop.arrival
-                if arr.planned_time is not None:
-                    planned_arr = arr.planned_time.astimezone(fc_cases.BERLIN).isoformat(
-                        timespec="minutes"
+            plan_stop = _find_train_in_plan(client, dest_eva, iso_date, train)
+            if plan_stop is not None:
+                planned_arr, planned_dep = _stop_planned_times(plan_stop)
+                train, category, evu, trip_ref = _trip_label_from_stop(
+                    plan_stop, train, category, evu, trip_ref
+                )
+
+            if use_realtime:
+                rt = client.get_realtime_changes(dest_eva, kind=RealtimeKind.RCHG)
+                rt_stop = _match_train(rt, train)
+                if rt_stop is not None and _stop_on_service_date(rt_stop, service_day):
+                    if rt_stop.arrival is not None:
+                        arr = rt_stop.arrival
+                        if arr.planned_time is not None and planned_arr is None:
+                            planned_arr = _iso_minutes(arr.planned_time)
+                        if arr.actual_time is not None and arr.delay_min is not None:
+                            actual_arr = _iso_minutes(arr.actual_time)
+                            delay_min_arr = arr.delay_min
+                    if rt_stop.departure is not None:
+                        dep = rt_stop.departure
+                        if dep.planned_time is not None and planned_dep is None:
+                            planned_dep = _iso_minutes(dep.planned_time)
+                        if dep.actual_time is not None and dep.delay_min is not None:
+                            actual_dep = _iso_minutes(dep.actual_time)
+                    train, category, evu, trip_ref = _trip_label_from_stop(
+                        rt_stop, train, category, evu, trip_ref
                     )
-                if arr.actual_time is not None:
-                    actual_arr = arr.actual_time.astimezone(fc_cases.BERLIN).isoformat(
-                        timespec="minutes"
-                    )
-                delay_min_arr = arr.delay_min
-            if stop is not None and stop.departure is not None:
-                dep = stop.departure
-                if dep.planned_time is not None:
-                    planned_dep = dep.planned_time.astimezone(fc_cases.BERLIN).isoformat(
-                        timespec="minutes"
-                    )
-                if dep.actual_time is not None:
-                    actual_dep = dep.actual_time.astimezone(fc_cases.BERLIN).isoformat(
-                        timespec="minutes"
-                    )
-            if stop is not None and stop.trip_label is not None:
-                tl = stop.trip_label
-                if tl.number:
-                    train = tl.number or train
-                if tl.category:
-                    category = tl.category
-                if tl.owner:
-                    evu = tl.owner
-                trip_ref = stop.id
-            data_source = DataSource.TIMETABLES_API
+
+            if plan_stop is not None or use_realtime:
+                data_source = DataSource.TIMETABLES_API
             if delay_min_arr is None or planned_arr is None or actual_arr is None:
                 data_quality = DataQuality.BEST_EFFORT
             else:
@@ -724,6 +727,77 @@ def _cmd_trip(
     if error_message is not None:
         console.print(f"[yellow]Warnung:[/yellow] {error_message}")
     console.print(table)
+
+
+def _berlin_today_date() -> Date:
+    """Heutiges Kalenderdatum in Europe/Berlin (für Tests per monkeypatch)."""
+
+    return datetime.now(fc_cases.BERLIN).date()
+
+
+def _iso_minutes(when: datetime) -> str:
+    return when.astimezone(fc_cases.BERLIN).isoformat(timespec="minutes")
+
+
+def _event_on_service_date(event: StopEvent | None, service_day: Date) -> bool:
+    if event is None or event.planned_time is None:
+        return False
+    return event.planned_time.date() == service_day
+
+
+def _stop_on_service_date(stop: ParsedStop, service_day: Date) -> bool:
+    return _event_on_service_date(
+        stop.arrival, service_day
+    ) or _event_on_service_date(stop.departure, service_day)
+
+
+def _stop_planned_times(stop: ParsedStop) -> tuple[str | None, str | None]:
+    planned_arr: str | None = None
+    planned_dep: str | None = None
+    if stop.arrival is not None and stop.arrival.planned_time is not None:
+        planned_arr = _iso_minutes(stop.arrival.planned_time)
+    if stop.departure is not None and stop.departure.planned_time is not None:
+        planned_dep = _iso_minutes(stop.departure.planned_time)
+    return planned_arr, planned_dep
+
+
+def _trip_label_from_stop(
+    stop: ParsedStop,
+    train: str,
+    category: str | None,
+    evu: str | None,
+    trip_ref: str | None,
+) -> tuple[str, str | None, str | None, str | None]:
+    if stop.trip_label is not None:
+        tl = stop.trip_label
+        if tl.number:
+            train = tl.number or train
+        if tl.category:
+            category = tl.category
+        if tl.owner:
+            evu = tl.owner
+    if trip_ref is None:
+        trip_ref = stop.id
+    return train, category, evu, trip_ref
+
+
+def _find_train_in_plan(
+    client: TimetablesClient,
+    dest_eva: int,
+    iso_date: str,
+    train_number: str,
+) -> ParsedStop | None:
+    """Sucht Zugnummer im Sollfahrplan (alle Stunden des Service-Tags)."""
+
+    for hour in range(24):
+        try:
+            plan = client.get_plan(dest_eva, date=iso_date, hour=hour)
+        except NotFoundError:
+            continue
+        stop = _match_train(plan, train_number)
+        if stop is not None:
+            return stop
+    return None
 
 
 def _match_train(rt, train_number: str):  # type: ignore[no-untyped-def]
