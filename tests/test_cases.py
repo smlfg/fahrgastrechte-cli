@@ -332,6 +332,69 @@ def test_add_case_reuses_trip_for_same_unique_key(
     assert a.case_id != b.case_id
 
 
+def test_add_case_updates_existing_trip_on_reconstruction(
+    opened: sqlite3.Connection,
+) -> None:
+    """Rekonstruktion muss eine vorhandene manuelle Trip-Zeile überschreiben (#8)."""
+
+    manual = fc_cases.add_case(
+        opened,
+        _basic_input(service_date="2026-10-15", reason_text="Manuell erfasst"),
+    )
+    trip_case = fc_cases.add_case(
+        opened,
+        _basic_input(
+            service_date="2026-10-15",
+            reason_text="Rekonstruktion",
+            planned_dep="2026-10-15T14:00+02:00",
+            planned_arr="2026-10-13T16:55+02:00",
+            actual_arr="2026-10-13T17:30+02:00",
+            delay_min_arr=35,
+            data_source=DataSource.TIMETABLES_API,
+            data_quality=DataQuality.VERIFIED,
+            reconstructed_at="2026-10-21T08:00:00+02:00",
+        ),
+    )
+    assert trip_case.trip_id == manual.trip_id
+
+    shown = fc_cases.show_case(opened, trip_case.case_id)
+    assert shown["delay_min_arr"] == 35
+    assert shown["data_source"] == "timetables_api"
+    assert shown["data_quality"] == "verified"
+    assert shown["planned_arr"] == "2026-10-13T16:55+02:00"
+
+    manual_shown = fc_cases.show_case(opened, manual.case_id)
+    assert manual_shown["delay_min_arr"] == 35
+    assert manual_shown["data_quality"] == "verified"
+
+
+def test_add_case_manual_does_not_downgrade_verified_trip(
+    opened: sqlite3.Connection,
+) -> None:
+    verified = fc_cases.add_case(
+        opened,
+        _basic_input(
+            planned_dep="2026-10-12T14:00+02:00",
+            delay_min_arr=35,
+            data_source=DataSource.TIMETABLES_API,
+            data_quality=DataQuality.VERIFIED,
+        ),
+    )
+    fc_cases.add_case(
+        opened,
+        _basic_input(
+            reason_text="später manuell",
+            planned_dep="2026-10-12T15:00+02:00",
+        ),
+    )
+    row = opened.execute(
+        "SELECT delay_min_arr, data_quality FROM trips WHERE id = ?",
+        (verified.trip_id,),
+    ).fetchone()
+    assert row["delay_min_arr"] == 35
+    assert row["data_quality"] == "verified"
+
+
 # ----------------------------------------------------------- list_cases
 def test_list_cases_returns_all_when_no_filter(
     opened: sqlite3.Connection,
