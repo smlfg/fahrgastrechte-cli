@@ -14,6 +14,7 @@ Jeder Test läuft gegen die per autouse-Fixture gesetzte ``tmp_path``-DB.
 from __future__ import annotations
 
 import json
+from datetime import date
 from pathlib import Path
 
 import httpx
@@ -349,6 +350,51 @@ RCHG_ON_TIME_4711 = b"""<?xml version="1.0" encoding="UTF-8"?>
 </timetable>
 """
 
+PLAN_EMPTY = b"""<?xml version="1.0" encoding="UTF-8"?>
+<Timetable station="Mannheim Hbf" eva="8000105">
+</Timetable>
+"""
+
+PLAN_12345_DEST_1500 = b"""<?xml version="1.0" encoding="UTF-8"?>
+<Timetable station="Mannheim Hbf" eva="8000105">
+  <s id="plan-12345" eva="8000105">
+    <tl o="DBR" n="12345" c="RE"/>
+    <ar pt="2610131500" pp="2"/>
+  </s>
+</Timetable>
+"""
+
+PLAN_4711_DEST_1500 = b"""<?xml version="1.0" encoding="UTF-8"?>
+<Timetable station="Mannheim Hbf" eva="8000105">
+  <s id="plan-4711" eva="8000105">
+    <tl o="80" n="4711" c="RE"/>
+    <ar pt="2610131500" pp="5"/>
+  </s>
+</Timetable>
+"""
+
+RCHG_WRONG_DAY_2026 = b"""<?xml version="1.0" encoding="UTF-8"?>
+<Timetable station="Mannheim Hbf" eva="8000105">
+  <s id="-2-2610131455-1" eva="8000105">
+    <tl o="DBR" n="12345" c="RE"/>
+    <ar pt="2610131455" ct="2610131530" pp="2" cp="2"/>
+  </s>
+</Timetable>
+"""
+
+
+def _mock_plan_hours(
+    router: respx.MockRouter,
+    eva: int,
+    yymmdd: str,
+    hour_content: dict[int, bytes],
+) -> None:
+    """Registriert /plan/{eva}/{yymmdd}/{hh} — leer außer in ``hour_content``."""
+
+    for hour in range(24):
+        content = hour_content.get(hour, PLAN_EMPTY)
+        router.get(f"/plan/{eva}/{yymmdd}/{hour:02d}").respond(200, content=content)
+
 
 def _patch_client_factory(client):
     """Monkeypatch-Helfer: ersetzt ``_build_timetables_client``."""
@@ -371,12 +417,12 @@ def mocked_timetables():
         yield router
 
 
-def test_trip_reconstructs_case_from_api(
+def test_trip_historical_date_ignores_rchg_without_plan_match(
     mocked_timetables,
     _isolated_db: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Happy path: /rchg liefert Verspätung, Case wird mit delay_min_arr angelegt."""
+    """#7: Altdatum → /plan mit Datum, kein /rchg; fremde Live-Zeiten nicht verified."""
 
     monkeypatch.setenv("FAHRGASTRECHTE_DB_CLIENT_ID", "cid")
     monkeypatch.setenv("FAHRGASTRECHTE_DB_API_KEY", "key")
@@ -385,6 +431,53 @@ def test_trip_reconstructs_case_from_api(
     cli_main, factory = _patch_client_factory(client)
     monkeypatch.setattr(cli_main, "_build_timetables_client", factory)
 
+    _mock_plan_hours(mocked_timetables, 8000105, "190101", {})
+    rchg_route = mocked_timetables.get("/rchg/8000105").respond(
+        200, content=RCHG_WRONG_DAY_2026
+    )
+
+    _init_db(_isolated_db)
+    result = runner.invoke(
+        app,
+        [
+            "trip",
+            "--date",
+            "2019-01-01",
+            "--train",
+            "12345",
+            "--start-eva",
+            "8000096",
+            "--dest-eva",
+            "8000105",
+            "--json",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["data_quality"] == "best_effort"
+    assert payload["delay_min_arr"] is None
+    assert payload["planned_arr"] is None
+    assert rchg_route.call_count == 0
+
+
+def test_trip_reconstructs_case_from_api(
+    mocked_timetables,
+    _isolated_db: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Happy path: /plan + /rchg am Service-Tag liefern verified Verspätung."""
+
+    monkeypatch.setenv("FAHRGASTRECHTE_DB_CLIENT_ID", "cid")
+    monkeypatch.setenv("FAHRGASTRECHTE_DB_API_KEY", "key")
+
+    client = _make_mock_client(rate=10000, backoff=0.0)
+    cli_main, factory = _patch_client_factory(client)
+    monkeypatch.setattr(cli_main, "_build_timetables_client", factory)
+    monkeypatch.setattr(cli_main, "_berlin_today_date", lambda: date(2026, 10, 13))
+
+    _mock_plan_hours(
+        mocked_timetables, 8000105, "261013", {15: PLAN_12345_DEST_1500}
+    )
     mocked_timetables.get("/rchg/8000105").respond(200, content=RCHG_DELAYED)
 
     _init_db(_isolated_db)
@@ -426,7 +519,11 @@ def test_trip_planned_arr_matches_iris_local_berlin_wall_clock(
     client = _make_mock_client(rate=10000, backoff=0.0)
     cli_main, factory = _patch_client_factory(client)
     monkeypatch.setattr(cli_main, "_build_timetables_client", factory)
+    monkeypatch.setattr(cli_main, "_berlin_today_date", lambda: date(2026, 10, 13))
 
+    _mock_plan_hours(
+        mocked_timetables, 8000105, "261013", {15: PLAN_4711_DEST_1500}
+    )
     mocked_timetables.get("/rchg/8000105").respond(200, content=RCHG_ON_TIME_4711)
 
     _init_db(_isolated_db)
@@ -465,6 +562,11 @@ def test_trip_api_error_marks_best_effort(
     client = _make_mock_client(rate=10000, backoff=0.0, max_attempts=2)
     cli_main, factory = _patch_client_factory(client)
     monkeypatch.setattr(cli_main, "_build_timetables_client", factory)
+    monkeypatch.setattr(cli_main, "_berlin_today_date", lambda: date(2026, 10, 13))
+
+    _mock_plan_hours(
+        mocked_timetables, 8000105, "261013", {15: PLAN_12345_DEST_1500}
+    )
 
     # /rchg antwortet immer mit 503 → nach Retries ServerError.
     mocked_timetables.get("/rchg/8000105").mock(
