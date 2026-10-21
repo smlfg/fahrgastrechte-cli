@@ -452,6 +452,46 @@ def test_trip_planned_arr_matches_iris_local_berlin_wall_clock(
     assert payload["delay_min_arr"] == 0
 
 
+def test_trip_train_not_in_rchg_response_marks_manual(
+    mocked_timetables,
+    _isolated_db: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """F2: API antwortet, Zug fehlt in /rchg → ``data_source=manual`` (#9)."""
+
+    monkeypatch.setenv("FAHRGASTRECHTE_DB_CLIENT_ID", "cid")
+    monkeypatch.setenv("FAHRGASTRECHTE_DB_API_KEY", "key")
+
+    client = _make_mock_client(rate=10000, backoff=0.0)
+    cli_main, factory = _patch_client_factory(client)
+    monkeypatch.setattr(cli_main, "_build_timetables_client", factory)
+
+    mocked_timetables.get("/rchg/8000105").respond(200, content=RCHG_DELAYED)
+
+    _init_db(_isolated_db)
+    result = runner.invoke(
+        app,
+        [
+            "trip",
+            "--date",
+            "2026-10-19",
+            "--train",
+            "66666",
+            "--start-eva",
+            "8000096",
+            "--dest-eva",
+            "8000105",
+            "--json",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["delay_min_arr"] is None
+    assert payload["planned_arr"] is None
+    assert payload["data_source"] == "manual"
+    assert payload["case_id"] == 1
+
+
 def test_trip_api_error_marks_best_effort(
     mocked_timetables,
     _isolated_db: Path,
