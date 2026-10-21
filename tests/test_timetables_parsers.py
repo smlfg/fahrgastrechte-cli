@@ -2,12 +2,9 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
-from zoneinfo import ZoneInfo
+from datetime import datetime
 
 import pytest
-
-BERLIN = ZoneInfo("Europe/Berlin")
 
 from fahrgastrechte_core.timetables import (
     ParserError,
@@ -17,19 +14,20 @@ from fahrgastrechte_core.timetables import (
     parse_yymmddhhmm,
     RealtimeKind,
 )
+from fahrgastrechte_core.timetables.models import BERLIN_TZ
 
 
 # ---------------------------------------------------------- parse_yymmddhhmm
 def test_yymmddhhmm_parses_well_formed_value() -> None:
     dt = parse_yymmddhhmm("2610131430")
-    assert dt == datetime(2026, 10, 13, 14, 30, tzinfo=timezone.utc)
+    assert dt == datetime(2026, 10, 13, 14, 30, tzinfo=BERLIN_TZ)
 
 
 def test_yymmddhhmm_interprets_iris_wall_clock_as_europe_berlin() -> None:
     """IRIS ``pt``/``ct`` sind lokale Berliner Zeit ohne Offset (Issue #6)."""
 
     dt = parse_yymmddhhmm("2610131500")
-    assert dt == datetime(2026, 10, 13, 15, 0, tzinfo=BERLIN)
+    assert dt == datetime(2026, 10, 13, 15, 0, tzinfo=BERLIN_TZ)
 
 
 @pytest.mark.parametrize("bad", ["", "1", "a" * 10, "261013143X", "26101"])
@@ -143,7 +141,7 @@ def test_parse_plan_stop_with_arrival_and_departure() -> None:
     assert s0.arrival is not None
     assert s0.arrival.event_type == "ar"
     assert s0.arrival.planned_time == datetime(
-        2026, 10, 13, 14, 30, tzinfo=timezone.utc
+        2026, 10, 13, 14, 30, tzinfo=BERLIN_TZ
     )
     # In /plan gibt es per Definition kein ``ct`` → actual_time == planned_time,
     # delay_min == 0.
@@ -154,7 +152,7 @@ def test_parse_plan_stop_with_arrival_and_departure() -> None:
 
     assert s0.departure is not None
     assert s0.departure.planned_time == datetime(
-        2026, 10, 13, 14, 35, tzinfo=timezone.utc
+        2026, 10, 13, 14, 35, tzinfo=BERLIN_TZ
     )
 
 
@@ -206,7 +204,7 @@ def test_parse_realtime_on_time_yields_zero_delay() -> None:
     assert len(rt.stops) == 1
     arr = rt.stops[0].arrival
     assert arr is not None
-    assert arr.planned_time == datetime(2026, 10, 13, 14, 30, tzinfo=timezone.utc)
+    assert arr.planned_time == datetime(2026, 10, 13, 14, 30, tzinfo=BERLIN_TZ)
     assert arr.actual_time == arr.planned_time
     assert arr.delay_min == 0
     assert arr.cancelled is False
@@ -218,8 +216,8 @@ def test_parse_realtime_delayed_computes_delay() -> None:
     assert arr is not None
     # 15:00 → 16:05 = 65 Minuten
     assert arr.delay_min == 65
-    assert arr.actual_time == datetime(2026, 10, 13, 16, 5, tzinfo=timezone.utc)
-    assert arr.planned_time == datetime(2026, 10, 13, 15, 0, tzinfo=timezone.utc)
+    assert arr.actual_time == datetime(2026, 10, 13, 16, 5, tzinfo=BERLIN_TZ)
+    assert arr.planned_time == datetime(2026, 10, 13, 15, 0, tzinfo=BERLIN_TZ)
     assert arr.cancelled is False
     assert arr.changed_platform == "2"
 
@@ -239,7 +237,7 @@ def test_parse_realtime_cancelled_does_not_invent_time() -> None:
     # actual_time und delay_min sind None — NICHT pt als Ist ausgeben.
     assert arr.actual_time is None
     assert arr.delay_min is None
-    assert arr.planned_time == datetime(2026, 10, 13, 15, 0, tzinfo=timezone.utc)
+    assert arr.planned_time == datetime(2026, 10, 13, 15, 0, tzinfo=BERLIN_TZ)
 
 
 def test_parse_realtime_fchg_kind_round_trip() -> None:
