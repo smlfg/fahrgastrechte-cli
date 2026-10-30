@@ -1,5 +1,19 @@
 # fahrgastrechte-cli
 
+## Schnellstart
+
+Empfohlen: `pipx install git+https://github.com/smlfg/fahrgastrechte-cli` (landet im PATH).
+Alternative: `pip install --user git+https://github.com/smlfg/fahrgastrechte-cli`.
+Wenn der Befehl danach nicht gefunden wird: pipx nutzen oder das bin-Verzeichnis des venv in den PATH aufnehmen.
+
+```bash
+fahrgastrechte init
+fahrgastrechte add --service-date 2026-10-30 --train "ICE 123" \
+  --start-eva 8011160 --dest-eva 8000261 \
+  --reason "45 Minuten Verspätung" --delay-min 45
+fahrgastrechte list
+```
+
 CLI für das **Verspätungskonto** — DB-Verspätungsfälle erfassen, sammeln, prüfen
 und Anträge vorbereiten. Den Antrag schickt der Mensch selbst ab.
 
