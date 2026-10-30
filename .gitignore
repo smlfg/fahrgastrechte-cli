@@ -11,3 +11,4 @@ dist/
 konto.db
 *.sqlite
 *.sqlite-journal
+scratch/
