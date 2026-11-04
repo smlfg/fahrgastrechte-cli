@@ -17,7 +17,25 @@ fahrgastrechte add "RE 5" "Stuttgart Hbf" "Ludwigsburg"
 CLI für das **Verspätungskonto** — DB-Verspätungsfälle erfassen, sammeln, prüfen
 und Anträge vorbereiten. Den Antrag schickt der Mensch selbst ab.
 
-**Source of truth für die Anforderungen:** [`docs/ANFORDERUNGEN.md`](docs/ANFORDERUNGEN.md).
+**Source of truth für die Anforderungen:** [`docs/ANFORDERUNGEN.md`](docs/ANFORDERUNGEN.md),
+die verbindliche Oberfläche steht in [`INTERFACE.md`](INTERFACE.md), die
+Nutzer-Sitzungen in [`docs/UX.md`](docs/UX.md).
+
+## Bedienung
+
+Alle Befehle nehmen Namen und Suchbegriffe positional, nicht EVA-Nummern oder
+Pflicht-IDs. Schreibende Aktionen (`init`, `add`, `trip --save`, `status`,
+`export`, `config set`) zeigen eine Zusammenfassung und fragen im Terminal:
+
+```text
+Fall anlegen verbindlich? [j/N]
+```
+
+Default ist Nein; erst nach `j` wird geschrieben oder ein Request nach der
+Frage gesendet. `N` bricht ohne Änderung ab (Exit 0). In einer Pipe oder bei
+Agenten ohne TTY bricht das Tool vor jedem Request ab, außer `--confirm` bzw.
+`--yes` ist gesetzt; diese Flags sind nur für nicht-interaktive Läufe gedacht.
+Mit `--json` oder wenn stdout kein TTY ist, kommt genau ein JSON-Objekt.
 
 ## Status
 
@@ -36,11 +54,17 @@ die CLI ist eine dünne Typer-Hülle.
 ```bash
 cd fahrgastrechte-cli
 uv sync
-uv run fahrgastrechte --version   # 0.1.0
-uv run fahrgastrechte ping        # Tabelle
-uv run fahrgastrechte ping --json # JSON
-uv run pytest                     # Tests
+uv run fahrgastrechte --version      # 0.1.0
+uv run fahrgastrechte login          # DB-API-Credentials lokal speichern
+uv run fahrgastrechte station Stuttgart
+uv run fahrgastrechte ping --json    # JSON
+uv run pytest                        # Tests
 ```
+
+Credentials lassen sich für Agenten auch über
+`FAHRGASTRECHTE_DB_CLIENT_ID` und `FAHRGASTRECHTE_DB_API_KEY` setzen; die
+Basis-URL überschreibt `FAHRGASTRECHTE_TIMETABLES_BASE_URL` (z. B. für den
+Fake-Server in Tests).
 
 ## Architektur
 
