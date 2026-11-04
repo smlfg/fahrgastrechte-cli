@@ -17,7 +17,7 @@ Marktforschung in diesem Schritt, keine erfundenen Quellen):
   `--confirm` nur für Agenten.
 - **README (`fahrgastrechte-cli`):** Beschreibt das Verspätungskonto als Tool
   zum Erfassen, Sammeln, Prüfen und Vorbereiten von Anträgen; der Mensch
-  schickt den Antrag selbst ab. Die dort genannten Use Cases UC1–UC6
+  schickt den Antrag selbst ab. Die Use Cases UC1–UC6 aus Abschnitt 2
   (Fall aufnehmen, offene Fälle sehen, gegen echte Daten prüfen, Duplikate
   vermeiden, Antrag vorbereiten, Status verfolgen) sind die Nachfragegrundlage.
 - **`docs/UX.md` + `scratch/live/NOTIZEN.md` (04.11.2026):** Drei konkrete
@@ -236,7 +236,13 @@ stats(month?) -> {case_count, expected_cents, below_threshold, cap}
 | sha2nkt/delay_bahn [V, github.com/sha2nkt/delay_bahn]                | Open Source, MIT  | MIT              | Aktivste direkte Referenzimplementierung (Python, rekonstruiert Fahrten, klickt sich in den DB-Antragsflow). Inspiration, nicht Codebasis. |
 | bahn.de Antragsformular (manuell)                                   | aktiv      | n. a.                 | **Ziel des Exports.** Tool bereitet vor, Mensch schickt ab.                                                                       |
 
-**Auth-Modell DB Timetables:** `DB-Client-Id` und `DB-Api-Key` als Header. Beide werden über `fahrgastrechte config set` (Keyring) verwaltet, nie in der DB oder im Repo. Free-Plan reicht für 60 req/min, mehr als genug für manuelle Erfassung.
+**Auth-Modell DB Timetables:** `DB-Client-Id` und `DB-Api-Key` als Header.
+Beide werden interaktiv über `fahrgastrechte login` hinterlegt (API-Key
+verdeckt per `getpass`, Session-Datei `0600`) oder für Agenten über
+`FAHRGASTRECHTE_DB_CLIENT_ID` / `FAHRGASTRECHTE_DB_API_KEY` gesetzt. Die
+bestehenden `config`-Schlüssel `db_client_id` / `db_api_key` bleiben als
+Kompatibilität erhalten; `logout` entfernt sie. Nichts davon landet im Repo.
+Free-Plan reicht für 60 req/min, mehr als genug für manuelle Erfassung.
 
 **Falls die Timetables-API für den konkreten Fall nichts liefert** (z. B. Linie nicht in IRIS, Busse/Straßenbahnen, lückenhafte Historie > 7 Tage): Fall als `data_quality: best_effort` oder `manual_only` markieren. Keine erfundenen Ist-Zeiten.
 
@@ -269,7 +275,9 @@ Alle Werte nach offiziellen Quellen, Stand 12.10.2026. **Kein erfundener Betrag.
 - **N1 Sicherheit & DSGVO:**
   - Stammdaten (Name, Adresse, IBAN) nur lokal, im OS-Keyring oder in `chmod 0600`-Datei unter `~/.config/fahrgastrechte/`. Nichts in der SQLite-DB im Klartext für sensible Felder, sondern Referenz auf Keyring-Key [A].
   - Keine Telemetrie, keine Cloud-Sync, keine Logs nach extern.
-  - DB-API-Key wird über `keyring` oder Env-Variable aufgenommen, nicht im Repo.
+  - DB-API-Key wird interaktiv über `fahrgastrechte login` (Session-Datei
+    `0600`), über Env-Variablen oder optional `keyring` aufgenommen, nicht im
+    Repo und nicht in der Shell-Historie.
 - **N2 Schonender API-Zugriff:** Max. 30 req/min selbstauferlegt (Timetables erlaubt 60), Retry mit Exponential-Backoff, ETag-Caching, eigener User-Agent `fahrgastrechte/0.1 (+contact: samuel@example.invalid)`.
 - **N3 Robustheit:** Rekonstruktion darf nie aus einem API-Fehler ein erfundenes `delay_min_arr` machen. Bei Fehler: `data_quality = best_effort` und `delay_min_arr = NULL`; UI zeigt klare Lücke.
 - **N4 Ausgabe:** Text-Default für Menschen, `--json` strikt und versioniert, ISO 8601 mit Zeitzone Europe/Berlin, `cents` als Ganzzahl, `delay_min` als Ganzahl.
