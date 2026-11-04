@@ -5,6 +5,39 @@ Quellen-Kennzeichnung: **[V]** = selbst geprüft (öffentlich, mit Quellen-URL, 
 
 ---
 
+## 0. Nachfrage
+
+Belegt am 04.11.2026 aus dem eigenen Repo und dem Tool-Brief (keine externe
+Marktforschung in diesem Schritt, keine erfundenen Quellen):
+
+- **Tool-Brief `fahrgastrechte-cli` (R2, 04.11.2026):** Das bestehende Tool
+  soll nachgerüstet werden, weil `add`/`trip` Pflicht-Optionen und EVA-Nummern
+  statt Namen verlangen und `station`, `status`, `export`, `login`, `logout`
+  fehlen. Gewünscht sind positional Namen/Suchbegriffe, `[j/N]` im TTY und
+  `--confirm` nur für Agenten.
+- **README (`fahrgastrechte-cli`):** Beschreibt das Verspätungskonto als Tool
+  zum Erfassen, Sammeln, Prüfen und Vorbereiten von Anträgen; der Mensch
+  schickt den Antrag selbst ab. Die dort genannten Use Cases UC1–UC6
+  (Fall aufnehmen, offene Fälle sehen, gegen echte Daten prüfen, Duplikate
+  vermeiden, Antrag vorbereiten, Status verfolgen) sind die Nachfragegrundlage.
+- **`docs/UX.md` + `scratch/live/NOTIZEN.md` (04.11.2026):** Drei konkrete
+  Nutzer-Sitzungen sind live erkundet: Login/Stationssuche, lesende
+  `trip`-Vorschau und `add` bis zur Bestätigung. Die Erkundung zeigt, dass
+  Stationsnamen über `/station/{pattern}` auflösbar sind und die EVA-Nummern
+  nicht vom Menschen eingegeben werden müssen.
+- **Repo-Historie/Issues:** Die bestehenden Commits und der PR zu Issue #9
+  belegen, dass die Timetables-Rekonstruktion bereits genutzt und weiter
+  gepflegt wird. Die Nachrüstung baut darauf auf, statt ein neues Tool zu
+  bauen.
+
+**Belegte Lücke:** Ohne Nachrüstung ist der Haupt-Use-Case („RE 5 von
+Stuttgart nach Ludwigsburg als Verspätungsfall anlegen“) nur über
+`--service-date`, `--train`, `--start-eva`, `--dest-eva` und `--reason`
+erreichbar; das ist für Menschen im Terminal nicht zumutbar und widerspricht
+den Regeln zur Bedienbarkeit.
+
+---
+
 ## 1. Ziel & Scope
 
 - **Ziel:** Samuel erfasst, sammelt und bereitet eigene DB-Verspätungsfälle für Fahrgastrechte-Anträge vor. Das Tool schlägt Fälle vor, prüft sie gegen echte Verspätungsdaten, markiert Duplikate, berechnet den voraussichtlichen Entschädigungsbetrag nach den offiziellen Regeln und erzeugt druckfertige / importierbare Antragsunterlagen. **Den Antrag selbst schickt Samuel weiterhin selbst ab** (DB-Kundenkonto, Formular per Post, Servicecenter). Das Tool berät und vorbereitet, es vertritt nicht.
@@ -29,7 +62,7 @@ Quellen-Kennzeichnung: **[V]** = selbst geprüft (öffentlich, mit Quellen-URL, 
 
 ## 3. Funktionale Anforderungen
 
-Jeder Befehl: `--json` liefert stabile Maschinendaten, ohne Flag eine Tabelle für Menschen. Exit-Codes: 0 OK, 1 sonstiger Fehler, 2 nicht initialisiert (kein DB-Setup), 3 ungültige Eingabe, 4 Netzwerk/Datenquelle nicht erreichbar, 5 Parser-/Datenfehler.
+Jeder Befehl: `--json` liefert stabile Maschinendaten, ohne Flag eine Tabelle für Menschen. Ist stdout kein TTY, wird automatisch JSON ausgegeben. Exit-Codes: 0 OK (auch Abbruch mit `N`), 1 sonstiger/fachlicher Fehler, 2 nicht initialisiert (kein DB-Setup), 3 ungültige Eingabe/Usage/fehlende Zugangsdaten, 4 Netzwerk/Datenquelle nicht erreichbar, 5 Parser-/Datenfehler, 130 Strg+C. Die vollständige Oberfläche (Flags, Env, Session-Pfad, Bestätigungsregeln) steht in [`INTERFACE.md`](../INTERFACE.md).
 
 | ID  | Prio     | Funktion                                                                                                                                                                                                                                                                              | Vorgeschlagener Befehl / MCP-Tool                                            |
 | --- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
@@ -48,6 +81,39 @@ Jeder Befehl: `--json` liefert stabile Maschinendaten, ohne Flag eine Tabelle f�
 | F13 | **Could** | Erinnerung, wenn das „Konto" die 4 € erreicht oder ein Antrag > 30 Tage offen ist.                                                                                                                                                                                                     | `fahrgastrechte watch` (Daemon / Cron)                                       |
 
 MCP-Mapping (Phase 2, jeder Must- und Should-Befehl wird 1:1 ein Tool): `add_delay_case`, `list_delay_cases`, `show_delay_case`, `compute_compensation`, `update_status`, `export_pdf`, `export_csv`, `get_config`, `set_config`.
+
+### 3a. CLI-Oberfläche (Nachtrag R2, verbindlich)
+
+Die bisherigen Optionen bleiben als Kompatibilität erhalten. Menschen benutzen
+die positional Form:
+
+| Zweck | Aufruf | Schreibend |
+|---|---|---|
+| Stationssuche | `fahrgastrechte station <suchbegriff>` | nein |
+| Fahrt prüfen | `fahrgastrechte trip <zug> <start> <ziel>` | nein |
+| Fahrt prüfen + speichern | `fahrgastrechte trip … --save` | ja |
+| Fall anlegen | `fahrgastrechte add <zug> <start> <ziel>` | ja |
+| Fälle | `fahrgastrechte list [status]` | nein |
+| Fall anzeigen | `fahrgastrechte show <zug\|id>` | nein |
+| Entschädigung | `fahrgastrechte calc <zug\|id>` | nein |
+| Status ändern | `fahrgastrechte status <zug\|id> <neu>` | ja |
+| Antrag vorbereiten | `fahrgastrechte export pdf\|csv [name]` | ja |
+| Initialisieren | `fahrgastrechte init` | ja |
+| Stammdaten | `fahrgastrechte config set\|get\|list` | `set` ja |
+| Zugangsdaten | `fahrgastrechte login\|logout\|whoami` | `login`/`logout` lokal |
+
+Schreibende Aktionen zeigen eine Zusammenfassung und fragen im TTY
+„<Aktion> verbindlich? [j/N]“ auf stderr; Default ist Nein. `--confirm`/`--yes`
+sind nur für Agenten. Ohne TTY und ohne Flag wird vor jedem Request
+abgebrochen. `trip` ist ohne `--save` bewusst lesend (UX-Sitzung b) und
+speichert nichts.
+
+`add` liest `ticket_type` aus `--ticket-type`, sonst `config ticket_type`,
+sonst `d_ticket`. Datumsabhängige Befehle nutzen heute; `FAHRGASTRECHTE_HEUTE`
+ist nur für Tests. Credentials kommen aus `FAHRGASTRECHTE_DB_CLIENT_ID` /
+`FAHRGASTRECHTE_DB_API_KEY` oder aus der Login-Session unter
+`$XDG_CONFIG_HOME/fahrgastrechte/session.json` (0600). Details:
+[`INTERFACE.md`](../INTERFACE.md).
 
 ## 4. Datenmodell (SQLite, lokal)
 
@@ -116,19 +182,21 @@ Indizes: `trips(service_date)`, `trips(train_number, service_date)`, `cases(trip
 ## 5. CLI-Kommandos (Übersicht)
 
 ```text
-fahrgastrechte init                                  # legt konto.db an, fragt Stammdaten ab
-fahrgastrechte station <suchbegriff>                  # Stationssuche (Timetables-API /station/{pattern})
-fahrgastrechte trip --date 2026-10-12 --train 12345   # Rekonstruktion aus Echtzeitdaten
-fahrgastrechte add [...]                             # F1: manuell
-fahrgastrechte add --from-trip <trip-ref>             # F2: aus Rekonstruktion
-fahrgastrechte list [--status ...] [--since ...]     # F3
-fahrgastrechte show <id>                             # F4
-fahrgastrechte calc <id>                             # F5, auch ohne Speichern
-fahrgastrechte status <id> <neu> [--note ...]         # F7
-fahrgastrechte export pdf --ids 1,2,3                # F8
-fahrgastrechte export csv [--status offen]           # F9
-fahrgastrechte config set|get|list                   # F10
-fahrgastrechte stats [--month 2026-10]               # F11
+fahrgastrechte init                                  # konto.db anlegen, Stammdaten abfragen
+fahrgastrechte station <suchbegriff>                  # Stationssuche (/station/{pattern})
+fahrgastrechte trip <zug> <start> <ziel>              # lesende Vorschau aus Echtzeitdaten
+fahrgastrechte trip <zug> <start> <ziel> --save       # zusätzlich lokal anlegen
+fahrgastrechte add <zug> <start> <ziel>               # F1: Fall anlegen (mit [j/N])
+fahrgastrechte add ... --from-trip <trip-ref>         # F2: aus Rekonstruktion (Kompatibilität)
+fahrgastrechte list [status] [--since ...]            # F3
+fahrgastrechte show <zug|id>                          # F4
+fahrgastrechte calc <zug|id>                          # F5
+fahrgastrechte status <zug|id> <neu> [--note ...]     # F7
+fahrgastrechte export pdf [name] [--ids 1,2,3]        # F8
+fahrgastrechte export csv [name] [--status offen]     # F9
+fahrgastrechte config set|get|list                    # F10
+fahrgastrechte login|logout|whoami                    # DB-API-Credentials lokal
+fahrgastrechte stats [--month 2026-10]                # F11
 ```
 
 Alle Befehle: `--json` für Maschinen, Standardausgabe Tabelle via `rich` (wie `ilias-cli`). Aufruf-Dokumentation in `--help` mit Beispielen.
