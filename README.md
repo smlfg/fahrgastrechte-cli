@@ -7,11 +7,11 @@ Alternative: `pip install --user git+https://github.com/smlfg/fahrgastrechte-cli
 Wenn der Befehl danach nicht gefunden wird: pipx nutzen oder das bin-Verzeichnis des venv in den PATH aufnehmen.
 
 ```bash
-fahrgastrechte init
-fahrgastrechte add --service-date 2026-10-30 --train "ICE 123" \
-  --start-eva 8011160 --dest-eva 8000261 \
-  --reason "45 Minuten Verspätung" --delay-min 45
-fahrgastrechte list
+pipx install git+https://github.com/smlfg/fahrgastrechte-cli
+fahrgastrechte login
+fahrgastrechte station "Stuttgart Hbf"
+fahrgastrechte trip "ICE 123" "Stuttgart Hbf" "Mannheim Hbf"
+fahrgastrechte add "RE 5" "Stuttgart Hbf" "Ludwigsburg"
 ```
 
 CLI für das **Verspätungskonto** — DB-Verspätungsfälle erfassen, sammeln, prüfen
