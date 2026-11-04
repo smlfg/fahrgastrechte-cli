@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<stations>
+  <station p="10a" meta="376001" name="Mannheim Hbf" eva="8000244" ds100="RM" db="true" creationts="26-11-03 10:15:45.291"/>
+</stations>

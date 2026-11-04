@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<timetable station="Ludwigsburg" eva="8000235">
+  <s id="-5-2611041436-1" eva="8000235">
+    <tl f="N" t="p" o="800201" c="RE" n="5"/>
+    <ar pt="2611041436" ct="2611041509" pp="3" cp="3"/>
+    <dp pt="2611041438" ct="2611041510" pp="3" cp="3"/>
+  </s>
+</timetable>

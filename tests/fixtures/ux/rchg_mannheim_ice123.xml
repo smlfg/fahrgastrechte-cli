@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<timetable station="Mannheim Hbf" eva="8000244">
+  <s id="-123-2611041525-1" eva="8000244">
+    <tl f="F" t="p" o="80" c="ICE" n="123"/>
+    <ar pt="2611041525" ct="2611041754" pp="5" cp="5"/>
+    <dp pt="2611041533" ct="2611041757" pp="5" cp="5"/>
+  </s>
+</timetable>
