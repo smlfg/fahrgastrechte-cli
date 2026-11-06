@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "plainbook"
+version = "1.0.0"
+description = "Kurskatalog ohne Login für den UX-Gate-Selbsttest"
+requires-python = ">=3.10"
+dependencies = []
+
+[project.scripts]
+plainbook = "plainbook.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]

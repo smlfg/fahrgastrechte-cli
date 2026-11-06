@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "bad-mcp"
+version = "1.0.0"
+description = "Fehlerhafter MCP-Selftest-Server ohne SDK"
+requires-python = ">=3.10"
+dependencies = []
+
+[project.scripts]
+bad-mcp = "bad_mcp.server:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]

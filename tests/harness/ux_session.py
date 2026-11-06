@@ -341,12 +341,18 @@ class PtySession:
 
 
 def session_env(spec: UxSpec, server: FakeServer | None, env: dict | None) -> dict[str, str]:
+    provided = {str(key) for key in (env or {})}
     merged = dict(os.environ)
     merged.update({str(key): str(value) for key, value in (env or {}).items()})
     meta = spec.meta or {}
     extra = meta.get("env")
+    credentials = {str(name) for name in (meta.get("credential_env") or [])}
     if isinstance(extra, dict):
-        merged.update({str(key): str(value) for key, value in extra.items()})
+        for key, value in extra.items():
+            key = str(key)
+            if key in credentials and key not in provided:
+                continue
+            merged[key] = str(value)
     base = meta.get("base_url_env")
     if base and server is not None:
         merged[str(base)] = server.base_url
@@ -509,6 +515,8 @@ def run_write_without_login(
 ) -> SessionResult:
     """Spielt eine schreibende Sitzung ohne Login und ohne credential_env."""
     merged = session_env(spec, server, env)
+    for name in (spec.meta or {}).get("credential_env", []):
+        merged.pop(str(name), None)
     cwd = merged.get("UX_REPO_DIR") or None
     fails: list[str] = []
     parts: list[str] = []
@@ -743,6 +751,15 @@ def build_env(
         "ACCEPTANCE_NET_LOG": str(home_path / "net.log"),
         "UX_REPO_DIR": str(Path(repo_dir).resolve()),
     }
+    meta = spec.meta or {}
+    extra = meta.get("env")
+    credentials = {str(name) for name in (meta.get("credential_env") or [])}
+    if isinstance(extra, dict):
+        # Normale Läufe behalten die Defaults aus ux-meta.env; UX09a entfernt
+        # credential_env anschließend wieder aus diesem Dict.
+        for key, value in extra.items():
+            if str(key) in credentials:
+                overrides[str(key)] = str(value)
     return session_env(spec, server, overrides)
 
 

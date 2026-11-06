@@ -509,6 +509,14 @@ def _login_session(ctx: Context):
     return None
 
 
+def _requires_login(ctx: Context) -> bool:
+    if (ctx.spec.meta or {}).get("credential_env"):
+        return True
+    if "login" in ctx.subcommands:
+        return True
+    return _login_session(ctx) is not None
+
+
 def _check_ux09(rows: dict[str, CheckRow], ctx: Context) -> None:
     write_sessions = [
         session for session in ctx.spec.sessions if is_write_session(session)
@@ -520,23 +528,31 @@ def _check_ux09(rows: dict[str, CheckRow], ctx: Context) -> None:
     problems: list[str] = []
     details: list[str] = []
     login_session = _login_session(ctx)
+    requires_login = _requires_login(ctx)
+    skipped_a = not requires_login
     for session in write_sessions:
-        env_a = _fresh_env(ctx)
-        with _new_server(ctx) as server:
-            fresh = run_write_without_login(
-                ctx.spec, session, server, env_a, ctx.tool
+        if requires_login:
+            env_a = _fresh_env(ctx)
+            with _new_server(ctx) as server:
+                fresh = run_write_without_login(
+                    ctx.spec, session, server, env_a, ctx.tool
+                )
+            problems.extend(
+                f"(a) Sitzung {session.title!r}: {failure}"
+                for failure in fresh.fails
             )
-        problems.extend(
-            f"(a) Sitzung {session.title!r}: {failure}"
-            for failure in fresh.fails
-        )
-        details.append(
-            f"## {session.title} – UX09a\n"
-            + "\n".join(f"- {failure}" for failure in fresh.fails)
-            + "\n\n```text\n"
-            + _tail(fresh.transcript, 20)
-            + "\n```"
-        )
+            details.append(
+                f"## {session.title} – UX09a\n"
+                + "\n".join(f"- {failure}" for failure in fresh.fails)
+                + "\n\n```text\n"
+                + _tail(fresh.transcript, 20)
+                + "\n```"
+            )
+        else:
+            details.append(
+                f"## {session.title} – UX09a\n"
+                "- übersprungen: kein login-Befehl und keine credential_env"
+            )
 
         env_b = _fresh_env(ctx)
         if login_session is not None:
@@ -561,13 +577,17 @@ def _check_ux09(rows: dict[str, CheckRow], ctx: Context) -> None:
     if problems:
         _row(rows, "UX09", False, "; ".join(problems), "\n\n".join(details))
     else:
-        _row(
-            rows,
-            "UX09",
-            True,
-            f"{len(write_sessions)} schreibende Sitzung(en): Voraussetzungen vor "
-            "[j/N] und Login-Felder vollständig",
-        )
+        if skipped_a:
+            befund = (
+                f"{len(write_sessions)} schreibende Sitzung(en): kein Login "
+                "vorausgesetzt, (a) übersprungen; Formfelder vollständig"
+            )
+        else:
+            befund = (
+                f"{len(write_sessions)} schreibende Sitzung(en): Voraussetzungen vor "
+                "[j/N] und Login-Felder vollständig"
+            )
+        _row(rows, "UX09", True, befund, "\n\n".join(details))
 
 
 def _check_ux00(rows: dict[str, CheckRow], ctx: Context) -> None:

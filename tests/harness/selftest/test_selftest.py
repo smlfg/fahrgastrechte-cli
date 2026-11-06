@@ -9,6 +9,7 @@ UX_CHECK = HARNESS / "ux_check.py"
 GOOD = HARNESS / "selftest" / "good_cli"
 BAD = HARNESS / "selftest" / "bad_cli"
 NOCHECK = HARNESS / "selftest" / "nocheck_cli"
+NOLOGIN = HARNESS / "selftest" / "nologin_cli"
 SCRATCH_TMP = REPO / "scratch" / "tmp"
 
 
@@ -84,6 +85,107 @@ def test_bad_cli_fails_expected_checks():
     assert rows.get("UX08") == "FAIL" or rows.get("UX07") == "FAIL", report
     assert "nie gesendet" in report
     assert "nie gesendet" in stdout
+
+
+def test_nologin_cli_does_not_fail_ux09_for_missing_login():
+    code, stdout, report = _run_check(NOLOGIN)
+    rows = _rows(report)
+    assert code == 0, stdout
+    assert "FAIL" not in rows.values(), report
+    assert rows.get("UX09") in {"PASS", "SKIP"}, report
+    assert "(a) Sitzung" not in report, report
+    assert "plainbook login" not in report, report
+
+
+def test_session_env_does_not_reinject_stripped_credentials():
+    sys.path.insert(0, str(HARNESS))
+    try:
+        from ux_check import _env_without_credentials
+        from ux_session import session_env
+        from ux_spec import UxSpec
+    finally:
+        sys.path.remove(str(HARNESS))
+    spec = UxSpec(
+        meta={
+            "credential_env": ["UX09_FP1_SESSION_KEY"],
+            "env": {
+                "UX09_FP1_SESSION_KEY": "meta-session",
+                "UX09_FP1_KEEP": "kept",
+            },
+        }
+    )
+    stripped = _env_without_credentials(
+        spec,
+        {"UX09_FP1_SESSION_KEY": "stripped", "UX09_FP1_OTHER": "other"},
+    )
+    merged = session_env(spec, None, stripped)
+    assert "UX09_FP1_SESSION_KEY" not in merged
+    assert merged["UX09_FP1_KEEP"] == "kept"
+    assert merged["UX09_FP1_OTHER"] == "other"
+
+    kept = session_env(spec, None, {"UX09_FP1_SESSION_KEY": "from-env"})
+    assert kept["UX09_FP1_SESSION_KEY"] == "meta-session"
+
+
+def test_run_write_without_login_strips_credentials_after_session_env(monkeypatch):
+    sys.path.insert(0, str(HARNESS))
+    try:
+        import ux_session
+        from ux_check import _env_without_credentials
+        from ux_spec import Session, Step, UxSpec
+    finally:
+        sys.path.remove(str(HARNESS))
+
+    spec = UxSpec(
+        meta={
+            "credential_env": ["UX09_FP1_SESSION_KEY"],
+            "env": {
+                "UX09_FP1_SESSION_KEY": "meta-session",
+                "UX09_FP1_KEEP": "kept",
+            },
+        }
+    )
+    session = Session(title="Test", steps=[Step(kind="command", text="true", lineno=1)])
+    captured: dict[str, str] = {}
+
+    class FakePty:
+        def __init__(self, command, env=None, cwd=None):
+            captured.update(env or {})
+            self.transcript = ""
+            self._pending = ""
+
+        def poll(self):
+            return 0
+
+        def wait_exit(self, timeout=None):
+            return 0
+
+        def _read_once(self, timeout):
+            return False
+
+        def send_line(self, text):
+            pass
+
+        def kill(self):
+            pass
+
+        def _drain(self):
+            pass
+
+        def close(self):
+            pass
+
+    class FakeServer:
+        def sent_formsteps(self):
+            return []
+
+    monkeypatch.setattr(ux_session, "PtySession", FakePty)
+    env = _env_without_credentials(
+        spec, {"UX09_FP1_SESSION_KEY": "stripped"}
+    )
+    ux_session.run_write_without_login(spec, session, FakeServer(), env, "plainbook")
+    assert "UX09_FP1_SESSION_KEY" not in captured
+    assert captured["UX09_FP1_KEEP"] == "kept"
 
 
 def test_good_cli_spec_only_passes_without_installation():
