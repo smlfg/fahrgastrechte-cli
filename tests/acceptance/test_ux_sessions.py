@@ -68,6 +68,10 @@ def _environment(spec: UxSpec, tmp_path: Path):
     bin_dir = tmp_path / "bin"
     _write_launcher(bin_dir)
     env = build_env(spec, None, home, bin_dir, REPO)
+    # conftest autouse setzt FAHRGASTRECHTE_DB auf tmp_path/konto.db und
+    # session_env vererbt os.environ; "" macht den Override ungültig, sodass
+    # die Akzeptanzsitzungen ihre konto.db nur im Fake-Home wählen.
+    env["FAHRGASTRECHTE_DB"] = ""
     return env, home
 
 

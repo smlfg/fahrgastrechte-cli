@@ -206,8 +206,10 @@ def test_add_json_duplicate_includes_original_id(
 
 
 # ----------------------------------------------------------- list
-def test_list_empty_after_init(_isolated_db: Path) -> None:
+def test_list_empty_after_init(_isolated_db: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     _init_db(_isolated_db)
+    # CliRunner-Capture ist kein TTY → Auto-JSON; Textfall env-gesteuert erzwingen.
+    monkeypatch.setenv("FAHRGASTRECHTE_OUTPUT", "text")
     result = runner.invoke(app, ["list"])
     assert result.exit_code == 0
     assert "Keine Fälle" in result.output
@@ -220,8 +222,10 @@ def test_list_before_init_returns_exit_two(_isolated_db: Path) -> None:
 
 def test_list_shows_two_cases_and_sum_row_matches(
     _isolated_db: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _init_db(_isolated_db)
+    monkeypatch.setenv("FAHRGASTRECHTE_OUTPUT", "text")
     _add_basic(expected_cents=150)
     _add_basic(
         service_date="2026-10-11",

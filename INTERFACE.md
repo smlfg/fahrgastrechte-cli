@@ -143,6 +143,7 @@ der Fehler `fahrgastrechte login` und endet mit Exit 3.
 | `FAHRGASTRECHTE_DB` | Alternativer Pfad zur lokalen SQLite-DB (`konto.db`). |
 | `FAHRGASTRECHTE_KEYRING=1` | Optimiert sensible Config-Werte zusätzlich ins OS-Keyring (bestehend). |
 | `FAHRGASTRECHTE_HEUTE` | Nur Tests: `YYYY-MM-DD` als „heute“. |
+| `FAHRGASTRECHTE_OUTPUT` | Nur Tests: `text` erzwingt Tabellenausgabe, `json` erzwingt JSON (Standard: TTY-Erkennung). |
 | `XDG_CONFIG_HOME`, `XDG_DATA_HOME` | Standardpfade für Session und DB. |
 
 ## Exit-Codes

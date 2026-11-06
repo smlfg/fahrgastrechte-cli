@@ -103,10 +103,14 @@ def test_config_get_returns_json(_isolated_db: Path) -> None:
     assert payload == {"key": "iban", "value": "DE-test"}
 
 
-def test_config_get_unset_is_exit_zero(_isolated_db: Path) -> None:
+def test_config_get_unset_is_exit_zero(
+    _isolated_db: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Nicht gesetzter Key ist KEIN Fehler (Exit 0, Hinweis)."""
 
     runner.invoke(app, ["init"])
+    # CliRunner-Capture ist kein TTY → Auto-JSON; Textfall env-gesteuert erzwingen.
+    monkeypatch.setenv("FAHRGASTRECHTE_OUTPUT", "text")
     result = runner.invoke(app, ["config", "get", "name"])
     assert result.exit_code == 0
     assert "nicht gesetzt" in result.output
@@ -149,10 +153,13 @@ def test_config_list_json_keys_sorted(_isolated_db: Path) -> None:
     assert isinstance(payload["ticket_price_cents"], int)
 
 
-def test_config_list_empty_after_init_hint(_isolated_db: Path) -> None:
+def test_config_list_empty_after_init_hint(
+    _isolated_db: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Frische DB → leere Liste, Exit 0, kleiner Beispiel-Hinweis."""
 
     runner.invoke(app, ["init"])
+    monkeypatch.setenv("FAHRGASTRECHTE_OUTPUT", "text")
     result = runner.invoke(app, ["config", "list"])
     assert result.exit_code == 0
     assert "Beispiel" in result.output or "set" in result.output
