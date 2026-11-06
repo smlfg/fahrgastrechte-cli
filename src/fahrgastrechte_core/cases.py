@@ -775,6 +775,140 @@ def _default_expected_reason(expected_cents: int, ticket_type: str) -> str:
     )
 
 
+# ----------------------------------------------------------- Suche / Status
+ALLOWED_TRANSITIONS: dict[str, set[str]] = {
+    CaseStatusName.OFFEN.value: {CaseStatusName.EINGEREICHT.value},
+    CaseStatusName.EINGEREICHT.value: {
+        CaseStatusName.RUECKFRAGE.value,
+        CaseStatusName.BEWILLIGT.value,
+        CaseStatusName.ABGELEHNT.value,
+    },
+    CaseStatusName.RUECKFRAGE.value: {
+        CaseStatusName.NACHGEREICHT.value,
+        CaseStatusName.ABGELEHNT.value,
+    },
+    CaseStatusName.NACHGEREICHT.value: {
+        CaseStatusName.RUECKFRAGE.value,
+        CaseStatusName.BEWILLIGT.value,
+        CaseStatusName.ABGELEHNT.value,
+    },
+    CaseStatusName.BEWILLIGT.value: {
+        CaseStatusName.AUSGEZAHLT.value,
+        CaseStatusName.ABGELEHNT.value,
+    },
+    CaseStatusName.AUSGEZAHLT.value: set(),
+    CaseStatusName.ABGELEHNT.value: set(),
+}
+
+NOTE_REQUIRED_STATUSES = {
+    CaseStatusName.RUECKFRAGE.value,
+    CaseStatusName.ABGELEHNT.value,
+}
+
+
+class InvalidStatusTransitionError(ValueError):
+    """Der Statuswechsel ist laut F7 nicht erlaubt."""
+
+
+def find_cases_by_train(
+    conn: sqlite3.Connection, query: str
+) -> list[dict[str, Any]]:
+    """Sucht lokale Fälle per Zugnummer oder Linie (Freitext)."""
+
+    needle = (query or "").strip()
+    if not needle:
+        return []
+    rows = conn.execute(
+        "SELECT c.id AS case_id, c.trip_id, c.ticket_type, c.ticket_class, "
+        "c.reason_text, c.expected_cents, c.cap_applied, c.created_at, "
+        "c.updated_at, "
+        "t.service_date, t.train_number, t.line, t.category, t.evu, "
+        "t.start_eva, t.dest_eva, t.delay_min_arr, "
+        "cs.status AS current_status "
+        "FROM cases c JOIN trips t ON c.trip_id = t.id "
+        "LEFT JOIN case_status cs ON cs.case_id = c.id "
+        "AND cs.at = (SELECT MAX(at) FROM case_status WHERE case_id = c.id) "
+        "WHERE lower(t.train_number) = lower(?) "
+        "OR lower(t.line) = lower(?) "
+        "OR lower(t.line) LIKE lower(?) "
+        "ORDER BY t.service_date DESC, c.id DESC",
+        (needle, needle, f"%{needle}%"),
+    ).fetchall()
+    return [
+        _case_to_dict(
+            row,
+            current_status=row["current_status"] or CaseStatusName.OFFEN.value,
+        )
+        for row in rows
+    ]
+
+
+def get_current_status(conn: sqlite3.Connection, case_id: int) -> str:
+    row = conn.execute(
+        "SELECT status FROM case_status WHERE case_id = ? "
+        "ORDER BY at DESC LIMIT 1",
+        (case_id,),
+    ).fetchone()
+    return row["status"] if row is not None else CaseStatusName.OFFEN.value
+
+
+def update_case_status(
+    conn: sqlite3.Connection,
+    case_id: int,
+    new_status: str,
+    *,
+    note: str | None = None,
+    force: bool = False,
+) -> dict[str, Any]:
+    """Ändert den Status nach den erlaubten Übergängen aus F7."""
+
+    try:
+        target = CaseStatusName(new_status).value
+    except ValueError as exc:
+        allowed = ", ".join(item.value for item in CaseStatusName)
+        raise ValueError(
+            f"Unbekannter Status {new_status!r}; erlaubt: {allowed}"
+        ) from exc
+
+    row = conn.execute("SELECT id FROM cases WHERE id = ?", (case_id,)).fetchone()
+    if row is None:
+        raise CaseNotFoundError(case_id)
+
+    previous = get_current_status(conn, case_id)
+    if target == previous and not force:
+        raise InvalidStatusTransitionError(
+            f"Fall #{case_id} hat bereits den Status {target!r}."
+        )
+    allowed = ALLOWED_TRANSITIONS.get(previous, set())
+    if target not in allowed and not force:
+        allowed_text = ", ".join(sorted(allowed)) or "keine"
+        raise InvalidStatusTransitionError(
+            f"Statuswechsel {previous!r} → {target!r} ist nicht erlaubt. "
+            f"Erlaubt: {allowed_text}. Mit --force erzwingen."
+        )
+    if target in NOTE_REQUIRED_STATUSES and not (note or "").strip():
+        raise ValueError(
+            f"Status {target!r} braucht eine Begründung (--note)."
+        )
+
+    at = _now_iso()
+    conn.execute(
+        "INSERT INTO case_status(case_id, status, at, note) VALUES (?, ?, ?, ?)",
+        (case_id, target, at, note),
+    )
+    conn.execute(
+        "UPDATE cases SET updated_at = ? WHERE id = ?", (at, case_id)
+    )
+    conn.commit()
+    return {
+        "case_id": case_id,
+        "previous_status": previous,
+        "status": target,
+        "note": note,
+        "at": at,
+    }
+
+
 # ----------------------------------------------------------- Re-export
 __all__ = [
     "AddCaseInput",
@@ -782,9 +916,15 @@ __all__ = [
     "BERLIN",
     "CaseNotFoundError",
     "DuplicateCaseError",
+    "ALLOWED_TRANSITIONS",
+    "NOTE_REQUIRED_STATUSES",
+    "InvalidStatusTransitionError",
     "compute_dup_hash",
     "find_case_by_hash",
+    "find_cases_by_train",
+    "get_current_status",
     "add_case",
+    "update_case_status",
     "calc_compensation_for_case",
     "list_cases",
     "show_case",

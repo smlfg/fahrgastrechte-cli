@@ -23,8 +23,17 @@ APP_DIR_NAME = "fahrgastrechte"
 DB_FILE_NAME = "konto.db"
 CONFIG_DIR_NAME = "fahrgastrechte"  # ~/.config/fahrgastrechte (für Stammdaten-Datei, Phase 2)
 
-_DEFAULT_DIR = Path.home() / ".local" / "share" / APP_DIR_NAME
-_DEFAULT_DB = _DEFAULT_DIR / DB_FILE_NAME
+def _data_dir() -> Path:
+    """XDG-Datenverzeichnis, mit HOME-Fallback (Tests setzen XDG_DATA_HOME)."""
+
+    override = os.environ.get("XDG_DATA_HOME")
+    if override:
+        return Path(override).expanduser()
+    return Path.home() / ".local" / "share"
+
+
+def default_dir() -> Path:
+    return _data_dir() / APP_DIR_NAME
 
 
 def default_db_path() -> Path:
@@ -41,7 +50,7 @@ def default_db_path() -> Path:
         if path.is_dir() or str(path).endswith(("/", os.sep)):
             return path / DB_FILE_NAME
         return path
-    return _DEFAULT_DB
+    return default_dir() / DB_FILE_NAME
 
 
 def ensure_private_dir(path: Path) -> Path:
@@ -79,6 +88,7 @@ def ensure_private_file(path: Path) -> Path:
 __all__ = [
     "ENV_DB",
     "DB_FILE_NAME",
+    "default_dir",
     "default_db_path",
     "ensure_private_dir",
     "ensure_private_file",
