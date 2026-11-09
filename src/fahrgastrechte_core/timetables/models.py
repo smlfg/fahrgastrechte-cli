@@ -351,15 +351,28 @@ def parse_stations(payload: bytes | str) -> list[ParsedStation]:
             lon = float(lon_raw) if lon_raw else None
         except ValueError:
             lat = lon = None
-        out.append(
-            ParsedStation(
-                eva_no=int(eva_raw),
-                name=name,
-                ds100=ds100,
-                lat=lat,
-                lon=lon,
+        try:
+            eva_no = int(eva_raw)
+        except (TypeError, ValueError):
+            # Keine gültige EVA → Eintrag ist für uns unbrauchbar.
+            continue
+        if not (1_000_000 <= eva_no <= 9_999_999):
+            # Die Live-Suche liefert vereinzelt Betriebsstellen mit kurzen
+            # internen Nummern. Die dürfen die ganze Antwort nicht kippen.
+            continue
+        try:
+            out.append(
+                ParsedStation(
+                    eva_no=eva_no,
+                    name=name,
+                    ds100=ds100,
+                    lat=lat,
+                    lon=lon,
+                )
             )
-        )
+        except ValueError:
+            # Z. B. leerer Name nach dem Strippen — überspringen.
+            continue
     return out
 
 

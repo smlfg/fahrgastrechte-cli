@@ -99,6 +99,21 @@ def test_parse_stations_skips_malformed_entries() -> None:
     assert sts[0].eva_no == 8000096
 
 
+def test_parse_stations_skips_invalid_eva_numbers() -> None:
+    """Live-Treffer mit EVA < 1 000 000 dürfen die Antwort nicht abbrechen."""
+
+    xml = """<?xml version="1.0" encoding="UTF-8"?>
+<stationList>
+  <station eva="12345" name="Betriebsstelle ohne EVA"/>
+  <station eva="8000261" ds100="MH" name="München Hbf"/>
+  <station eva="0" name="Kaputt"/>
+</stationList>
+"""
+    sts = parse_stations(xml)
+    assert [s.name for s in sts] == ["München Hbf"]
+    assert sts[0].eva_no == 8000261
+
+
 def test_parse_stations_raises_on_invalid_xml() -> None:
     with pytest.raises(ParserError):
         parse_stations("<stationList><station eva= oops /></stationList>")
