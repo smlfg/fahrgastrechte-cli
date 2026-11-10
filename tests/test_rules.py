@@ -154,7 +154,7 @@ def test_calc_cli_json(tmp_path, monkeypatch) -> None:
     db_path = tmp_path / "konto.db"
     monkeypatch.setenv("FAHRGASTRECHTE_DB", str(db_path))
     runner = CliRunner()
-    assert runner.invoke(app, ["init"]).exit_code == 0
+    assert runner.invoke(app, ["init", "--confirm"]).exit_code == 0
     assert (
         runner.invoke(
             app,

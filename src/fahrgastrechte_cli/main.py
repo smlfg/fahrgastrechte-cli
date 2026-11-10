@@ -572,9 +572,11 @@ def init(
     """Initialisiert die lokale Datenbank (idempotent).
 
     Im Terminal werden Stammdaten abgefragt; leere Eingaben überspringen den
-    jeweiligen Wert. Ohne TTY bleibt der bisherige direkte Init-Pfad erhalten.
+    jeweiligen Wert. Ohne TTY ist nur der Schreibpfad mit ``--confirm``
+    erlaubt, damit ein versehentlicher Agenten-Lauf nichts anlegt.
     """
 
+    _require_confirmation_path("Init", confirm, json_output)
     profile: dict[str, str] = {}
     if _is_interactive() and not confirm:
         console.print("[bold]Stammdaten[/bold] (leer = überspringen)")

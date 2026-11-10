@@ -34,7 +34,7 @@ runner = CliRunner()
 
 # ----------------------------------------------------------- Hilfen
 def _init_db(_isolated_db: Path) -> None:
-    r = runner.invoke(app, ["init"])
+    r = runner.invoke(app, ["init", "--confirm"])
     assert r.exit_code == 0, r.output
 
 

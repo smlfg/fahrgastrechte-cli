@@ -28,7 +28,7 @@ def test_init_creates_db_and_returns_zero(_isolated_db: Path) -> None:
     """Erster ``init``-Aufruf: legt Datei an, Exit 0."""
 
     assert not _isolated_db.exists()
-    result = runner.invoke(app, ["init"])
+    result = runner.invoke(app, ["init", "--confirm"])
     assert result.exit_code == 0, result.output
     assert _isolated_db.exists(), "DB-Datei sollte angelegt sein"
     assert "DB initialisiert" in result.output
@@ -37,7 +37,7 @@ def test_init_creates_db_and_returns_zero(_isolated_db: Path) -> None:
 def test_init_json_output_is_stable(_isolated_db: Path) -> None:
     """``init --json`` liefert ein valides JSON mit schema_version=1."""
 
-    result = runner.invoke(app, ["init", "--json"])
+    result = runner.invoke(app, ["init", "--json", "--confirm"])
     assert result.exit_code == 0, result.output
     payload = json.loads(result.output)
     assert payload["status"] == "ok"
@@ -48,9 +48,9 @@ def test_init_json_output_is_stable(_isolated_db: Path) -> None:
 def test_init_is_idempotent(_isolated_db: Path) -> None:
     """Mehrfacher ``init``-Aufruf: Exit 0, kein zweiter Crash."""
 
-    first = runner.invoke(app, ["init"])
+    first = runner.invoke(app, ["init", "--confirm"])
     assert first.exit_code == 0
-    second = runner.invoke(app, ["init"])
+    second = runner.invoke(app, ["init", "--confirm"])
     assert second.exit_code == 0, second.output
     # Schema-Version bleibt 1.
     import sqlite3
@@ -60,10 +60,21 @@ def test_init_is_idempotent(_isolated_db: Path) -> None:
     assert v == 1
 
 
+def test_init_without_tty_without_confirm_aborts(_isolated_db: Path) -> None:
+    """Ohne TTY und ohne ``--confirm`` darf ``init`` nichts anlegen."""
+
+    result = runner.invoke(app, ["init", "--json"])
+    assert result.exit_code == EXIT_INVALID_INPUT
+    assert not _isolated_db.exists()
+    payload = json.loads(result.output)
+    assert payload["exit_code"] == EXIT_INVALID_INPUT
+    assert "confirm" in payload["hint"].lower()
+
+
 # ------------------------------------------------------- config set
 def test_config_set_after_init_returns_zero(_isolated_db: Path) -> None:
-    runner.invoke(app, ["init"])
-    result = runner.invoke(app, ["config", "set", "name", "Samuel"])
+    runner.invoke(app, ["init", "--confirm"])
+    result = runner.invoke(app, ["config", "set", "--confirm", "name", "Samuel"])
     assert result.exit_code == 0, result.output
     assert result.output.strip().lower().startswith("ok") or "ok" in result.output
 
@@ -72,7 +83,7 @@ def test_config_set_before_init_returns_exit_two(_isolated_db: Path) -> None:
     """Ohne ``init`` → Exit 2 (nicht initialisiert)."""
 
     assert not _isolated_db.exists()
-    result = runner.invoke(app, ["config", "set", "name", "Samuel"])
+    result = runner.invoke(app, ["config", "set", "--confirm", "name", "Samuel"])
     assert result.exit_code == EXIT_NOT_INITIALIZED
     assert not _isolated_db.exists(), "set darf die DB nicht erst anlegen"
 
@@ -80,23 +91,23 @@ def test_config_set_before_init_returns_exit_two(_isolated_db: Path) -> None:
 def test_config_set_unknown_key_returns_exit_three(_isolated_db: Path) -> None:
     """Unbekannter Key → Exit 3 (ungültige Eingabe)."""
 
-    runner.invoke(app, ["init"])
-    result = runner.invoke(app, ["config", "set", "nonsense", "x"])
+    runner.invoke(app, ["init", "--confirm"])
+    result = runner.invoke(app, ["config", "set", "--confirm", "nonsense", "x"])
     assert result.exit_code == EXIT_INVALID_INPUT
 
 
 # ------------------------------------------------------- config get
 def test_config_get_round_trip(_isolated_db: Path) -> None:
-    runner.invoke(app, ["init"])
-    runner.invoke(app, ["config", "set", "name", "Samuel Fleig"])
+    runner.invoke(app, ["init", "--confirm"])
+    runner.invoke(app, ["config", "set", "--confirm", "name", "Samuel Fleig"])
     result = runner.invoke(app, ["config", "get", "name"])
     assert result.exit_code == 0, result.output
     assert "Samuel Fleig" in result.output
 
 
 def test_config_get_returns_json(_isolated_db: Path) -> None:
-    runner.invoke(app, ["init"])
-    runner.invoke(app, ["config", "set", "iban", "DE-test"])
+    runner.invoke(app, ["init", "--confirm"])
+    runner.invoke(app, ["config", "set", "--confirm", "iban", "DE-test"])
     result = runner.invoke(app, ["config", "get", "iban", "--json"])
     assert result.exit_code == 0, result.output
     payload = json.loads(result.output)
@@ -108,7 +119,7 @@ def test_config_get_unset_is_exit_zero(
 ) -> None:
     """Nicht gesetzter Key ist KEIN Fehler (Exit 0, Hinweis)."""
 
-    runner.invoke(app, ["init"])
+    runner.invoke(app, ["init", "--confirm"])
     # CliRunner-Capture ist kein TTY → Auto-JSON; Textfall env-gesteuert erzwingen.
     monkeypatch.setenv("FAHRGASTRECHTE_OUTPUT", "text")
     result = runner.invoke(app, ["config", "get", "name"])
@@ -122,16 +133,16 @@ def test_config_get_before_init_returns_exit_two(_isolated_db: Path) -> None:
 
 
 def test_config_get_unknown_key_returns_exit_three(_isolated_db: Path) -> None:
-    runner.invoke(app, ["init"])
+    runner.invoke(app, ["init", "--confirm"])
     result = runner.invoke(app, ["config", "get", "nonsense"])
     assert result.exit_code == EXIT_INVALID_INPUT
 
 
 # ------------------------------------------------------- config list
 def test_config_list_shows_table(_isolated_db: Path) -> None:
-    runner.invoke(app, ["init"])
-    runner.invoke(app, ["config", "set", "name", "Samuel"])
-    runner.invoke(app, ["config", "set", "iban", "DE-1"])
+    runner.invoke(app, ["init", "--confirm"])
+    runner.invoke(app, ["config", "set", "--confirm", "name", "Samuel"])
+    runner.invoke(app, ["config", "set", "--confirm", "iban", "DE-1"])
     result = runner.invoke(app, ["config", "list"])
     assert result.exit_code == 0, result.output
     assert "name" in result.output
@@ -139,10 +150,10 @@ def test_config_list_shows_table(_isolated_db: Path) -> None:
 
 
 def test_config_list_json_keys_sorted(_isolated_db: Path) -> None:
-    runner.invoke(app, ["init"])
-    runner.invoke(app, ["config", "set", "z_last", "Z"])
-    runner.invoke(app, ["config", "set", "a_first", "A"])
-    runner.invoke(app, ["config", "set", "ticket_price_cents", "4900"])
+    runner.invoke(app, ["init", "--confirm"])
+    runner.invoke(app, ["config", "set", "--confirm", "z_last", "Z"])
+    runner.invoke(app, ["config", "set", "--confirm", "a_first", "A"])
+    runner.invoke(app, ["config", "set", "--confirm", "ticket_price_cents", "4900"])
     result = runner.invoke(app, ["config", "list", "--json"])
     assert result.exit_code == 0, result.output
     payload = json.loads(result.output)
@@ -158,7 +169,7 @@ def test_config_list_empty_after_init_hint(
 ) -> None:
     """Frische DB → leere Liste, Exit 0, kleiner Beispiel-Hinweis."""
 
-    runner.invoke(app, ["init"])
+    runner.invoke(app, ["init", "--confirm"])
     monkeypatch.setenv("FAHRGASTRECHTE_OUTPUT", "text")
     result = runner.invoke(app, ["config", "list"])
     assert result.exit_code == 0
