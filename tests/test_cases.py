@@ -414,6 +414,37 @@ def test_show_case_unknown_id_raises(opened: sqlite3.Connection) -> None:
     assert exc_info.value.case_id == 999
 
 
+def test_same_timestamp_status_returns_latest_status_once(
+    opened: sqlite3.Connection,
+) -> None:
+    """Zwei Statuswechsel in derselben Sekunde dürfen keinen Fall verdoppeln."""
+
+    result = fc_cases.add_case(opened, _basic_input())
+    at = "2099-11-09T12:00:00+01:00"
+    for status in ("eingereicht", "abgelehnt"):
+        opened.execute(
+            "INSERT INTO case_status(case_id, status, at, note) VALUES (?, ?, ?, ?)",
+            (result.case_id, status, at, "QA"),
+        )
+    opened.commit()
+
+    listed = fc_cases.list_cases(opened)
+    assert len(listed) == 1
+    assert listed[0]["current_status"] == "abgelehnt"
+
+    found = fc_cases.find_cases_by_train(opened, "12345")
+    assert len(found) == 1
+    assert found[0]["current_status"] == "abgelehnt"
+
+    shown = fc_cases.show_case(opened, result.case_id)
+    assert shown["current_status"] == "abgelehnt"
+    assert [entry["status"] for entry in shown["status_history"]][-2:] == [
+        "eingereicht",
+        "abgelehnt",
+    ]
+    assert fc_cases.get_current_status(opened, result.case_id) == "abgelehnt"
+
+
 # ----------------------------------------------------------- UNIQUE-Constraint
 def test_db_unique_index_blocks_duplicate_at_sql_level(
     opened: sqlite3.Connection,

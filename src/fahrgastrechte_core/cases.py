@@ -535,8 +535,9 @@ def list_cases(
     joins = (
         "FROM cases c "
         "JOIN trips t ON c.trip_id = t.id "
-        "LEFT JOIN case_status cs ON cs.case_id = c.id "
-        "AND cs.at = (SELECT MAX(at) FROM case_status WHERE case_id = c.id)"
+        "LEFT JOIN case_status cs ON cs.rowid = ("
+        "SELECT rowid FROM case_status WHERE case_id = c.id "
+        "ORDER BY at DESC, rowid DESC LIMIT 1)"
     )
 
     if status:
@@ -593,7 +594,7 @@ def sum_cases(cases: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
 def _status_history(conn: sqlite3.Connection, case_id: int) -> list[dict[str, Any]]:
     rows = conn.execute(
         "SELECT status, at, note FROM case_status "
-        "WHERE case_id = ? ORDER BY at ASC",
+        "WHERE case_id = ? ORDER BY at ASC, rowid ASC",
         (case_id,),
     ).fetchall()
     return [
@@ -725,10 +726,12 @@ def show_case(conn: sqlite3.Connection, case_id: int) -> dict[str, Any]:
     if row is None:
         raise CaseNotFoundError(case_id)
 
-    # Aktueller Status = jüngster case_status-Eintrag.
+    # Aktueller Status = jüngster case_status-Eintrag. Bei identischem
+    # Zeitstempel entscheidet die Einfügereihenfolge (rowid) — sonst würde
+    # der Join mehrere Statuszeilen treffen und Fälle mehrfach zählen.
     cur = conn.execute(
         "SELECT status, at FROM case_status WHERE case_id = ? "
-        "ORDER BY at DESC LIMIT 1",
+        "ORDER BY at DESC, rowid DESC LIMIT 1",
         (case_id,),
     ).fetchone()
     current_status = cur["status"] if cur else CaseStatusName.OFFEN.value
@@ -826,8 +829,9 @@ def find_cases_by_train(
         "t.start_eva, t.dest_eva, t.delay_min_arr, "
         "cs.status AS current_status "
         "FROM cases c JOIN trips t ON c.trip_id = t.id "
-        "LEFT JOIN case_status cs ON cs.case_id = c.id "
-        "AND cs.at = (SELECT MAX(at) FROM case_status WHERE case_id = c.id) "
+        "LEFT JOIN case_status cs ON cs.rowid = ("
+        "SELECT rowid FROM case_status WHERE case_id = c.id "
+        "ORDER BY at DESC, rowid DESC LIMIT 1) "
         "WHERE lower(t.train_number) = lower(?) "
         "OR lower(t.line) = lower(?) "
         "OR lower(t.line) LIKE lower(?) "
@@ -846,7 +850,7 @@ def find_cases_by_train(
 def get_current_status(conn: sqlite3.Connection, case_id: int) -> str:
     row = conn.execute(
         "SELECT status FROM case_status WHERE case_id = ? "
-        "ORDER BY at DESC LIMIT 1",
+        "ORDER BY at DESC, rowid DESC LIMIT 1",
         (case_id,),
     ).fetchone()
     return row["status"] if row is not None else CaseStatusName.OFFEN.value
