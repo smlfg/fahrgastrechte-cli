@@ -357,6 +357,65 @@ def test_200_with_invalid_xml_raises_parser_error(
         client.get_plan(EVA, date="2026-10-13", hour=14)
 
 
+# ====================================================== Tippvarianten
+def test_station_query_variants_resolves_common_spellings() -> None:
+    from fahrgastrechte_core.timetables.client import _station_query_variants
+
+    assert "München" in _station_query_variants("Muenchen")
+    assert "Köln Hbf" in _station_query_variants("Koeln Hbf")
+    assert "Frankfurt(Main)Hbf" in _station_query_variants(
+        "Frankfurt (Main) Hbf"
+    )
+
+
+def test_search_station_falls_back_to_umlaut_spelling() -> None:
+    """ASCII-Tippweise trifft live nichts; der Client probiert „München“."""
+
+    seen: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        path = request.url.raw_path.decode()
+        seen.append(path)
+        if "M%C3%BCnchen" in path:
+            return httpx.Response(200, content=STATIONS_XML)
+        return httpx.Response(200, content=b"<stationList/>")
+
+    c = TimetablesClient(
+        client_id=CLIENT_ID,
+        api_key=API_KEY,
+        base_url=DEFAULT_BASE_URL,
+        rate_per_minute=10000,
+        backoff_base_s=0.0,
+        transport=httpx.MockTransport(handler),
+    )
+    stations = c.search_station("Muenchen")
+    assert [s.name for s in stations] == ["Stuttgart Hbf", "Mannheim Hbf"]
+    assert any("M%C3%BCnchen" in path for path in seen)
+
+
+def test_search_station_falls_back_to_parentheses_without_spaces() -> None:
+    seen: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        path = request.url.raw_path.decode()
+        seen.append(path)
+        if "Frankfurt(Main)Hbf" in path:
+            return httpx.Response(200, content=STATIONS_XML)
+        return httpx.Response(200, content=b"<stationList/>")
+
+    c = TimetablesClient(
+        client_id=CLIENT_ID,
+        api_key=API_KEY,
+        base_url=DEFAULT_BASE_URL,
+        rate_per_minute=10000,
+        backoff_base_s=0.0,
+        transport=httpx.MockTransport(handler),
+    )
+    stations = c.search_station("Frankfurt (Main) Hbf")
+    assert stations
+    assert any("Frankfurt(Main)Hbf" in path for path in seen)
+
+
 # ====================================================== base url + extras
 def test_default_base_url_is_db_marketplace() -> None:
     """``DEFAULT_BASE_URL`` zeigt auf den offiziellen DB-API-Marketplace."""

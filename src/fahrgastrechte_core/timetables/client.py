@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import time
 from datetime import date as _date
 from typing import Any, Iterable, Mapping
@@ -76,6 +77,72 @@ _REALTIME_ENDPOINTS: Mapping[RealtimeKind, str] = {
     RealtimeKind.RCHG: "/rchg/{eva}",
     RealtimeKind.FCHG: "/fchg/{eva}",
 }
+
+# Umlaut→ASCII und zurück: Menschen tippen mal „München“, mal „Muenchen“.
+_UMLAUT_TO_ASCII = str.maketrans(
+    {"ä": "ae", "ö": "oe", "ü": "ue", "Ä": "Ae", "Ö": "Oe", "Ü": "Ue", "ß": "ss"}
+)
+_ASCII_TO_UMLAUT = (
+    ("ae", "ä"),
+    ("oe", "ö"),
+    ("ue", "ü"),
+    ("Ae", "Ä"),
+    ("Oe", "Ö"),
+    ("Ue", "Ü"),
+)
+
+
+def _collapse_whitespace(value: str) -> str:
+    return " ".join(value.split())
+
+
+def _parentheses_without_spaces(value: str) -> str:
+    """``Frankfurt (Main) Hbf`` → ``Frankfurt(Main)Hbf``."""
+
+    value = re.sub(r"\s*\(\s*", "(", value)
+    value = re.sub(r"\s*\)\s*", ")", value)
+    return _collapse_whitespace(value)
+
+
+def _restore_umlauts(value: str) -> str:
+    for source, target in _ASCII_TO_UMLAUT:
+        value = value.replace(source, target)
+    return value
+
+
+def _station_query_variants(pattern: str) -> list[str]:
+    """Mögliche Schreibweisen für die Stationssuche, in sinnvoller Reihenfolge.
+
+    Die API erwartet oft die DB-Schreibweise (``München``, ``Köln``,
+    ``Frankfurt(Main)Hbf``). Menschen tippen aber auch ASCII-Umschriften
+    oder mit Leerzeichen in Klammern. Wir probieren zuerst die Eingabe
+    unverändert und danach gängige Varianten.
+    """
+
+    base = _collapse_whitespace(pattern)
+    if not base:
+        return []
+    ascii_form = base.translate(_UMLAUT_TO_ASCII)
+    umlaut_form = _restore_umlauts(base)
+
+    candidates = [
+        base,
+        ascii_form,
+        umlaut_form,
+        _parentheses_without_spaces(base),
+        _parentheses_without_spaces(ascii_form),
+        _parentheses_without_spaces(umlaut_form),
+    ]
+
+    variants: list[str] = []
+    seen: set[str] = set()
+    for candidate in candidates:
+        candidate = _collapse_whitespace(candidate)
+        if not candidate or candidate.casefold() in seen:
+            continue
+        seen.add(candidate.casefold())
+        variants.append(candidate)
+    return variants
 
 
 class TimetablesClient:
@@ -251,19 +318,31 @@ class TimetablesClient:
 
         if not pattern:
             raise ValueError("pattern darf nicht leer sein")
-        response = self._request_with_retry(
-            "GET", f"/station/{pattern}"
-        )
-        try:
-            return parse_stations(response.content)
-        except ParserError:
-            raise
-        except Exception as exc:  # pragma: no cover - defensive
-            raise ParserError(
-                f"Unerwarteter Parser-Fehler bei /station: {exc}",
-                payload=response.content,
-                original=exc,
-            ) from exc
+        variants = _station_query_variants(pattern)
+        for index, candidate in enumerate(variants):
+            try:
+                response = self._request_with_retry(
+                    "GET", f"/station/{candidate}"
+                )
+            except NotFoundError:
+                # Ein echter 404 für die Originaleingabe bleibt ein Fehler;
+                # bei bloßen Tippvarianten probieren wir einfach weiter.
+                if index == 0:
+                    raise
+                continue
+            try:
+                stations = parse_stations(response.content)
+            except ParserError:
+                raise
+            except Exception as exc:  # pragma: no cover - defensive
+                raise ParserError(
+                    f"Unerwarteter Parser-Fehler bei /station: {exc}",
+                    payload=response.content,
+                    original=exc,
+                ) from exc
+            if stations:
+                return stations
+        return []
 
     def get_plan(
         self,
