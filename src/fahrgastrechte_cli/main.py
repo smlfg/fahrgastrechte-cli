@@ -628,6 +628,7 @@ def config_set(
 ) -> None:
     """Setzt einen Konfigurations-Wert in der DB (Exit 0/3)."""
 
+    _require_confirmation_path("Config set", confirm, json_output)
     db_path = _open_db_or_exit()
     try:
         with db.connect(db_path) as conn:

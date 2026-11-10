@@ -96,6 +96,22 @@ def test_config_set_unknown_key_returns_exit_three(_isolated_db: Path) -> None:
     assert result.exit_code == EXIT_INVALID_INPUT
 
 
+def test_config_set_without_tty_without_confirm_aborts(
+    _isolated_db: Path,
+) -> None:
+    """Ohne TTY und ohne ``--confirm`` darf ``config set`` nichts schreiben."""
+
+    runner.invoke(app, ["init", "--confirm"])
+    result = runner.invoke(
+        app, ["config", "set", "ticket_type", "eurorail", "--json"]
+    )
+    assert result.exit_code == EXIT_INVALID_INPUT
+    payload = json.loads(result.output)
+    assert payload["exit_code"] == EXIT_INVALID_INPUT
+    check = runner.invoke(app, ["config", "get", "ticket_type", "--json"])
+    assert json.loads(check.output)["value"] is None
+
+
 # ------------------------------------------------------- config get
 def test_config_get_round_trip(_isolated_db: Path) -> None:
     runner.invoke(app, ["init", "--confirm"])
