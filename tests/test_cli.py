@@ -8,7 +8,11 @@ Geschäftslogik-Hülle installierbar ist. Logik-Tests kommen ab Schritt 2.
 from __future__ import annotations
 
 import json
+import os
 import re
+import subprocess
+import sys
+from pathlib import Path
 
 from typer.testing import CliRunner
 
@@ -16,6 +20,7 @@ from fahrgastrechte_core import __version__
 from fahrgastrechte_cli.main import app
 
 runner = CliRunner()
+REPO = Path(__file__).resolve().parents[1]
 
 
 def test_help_exits_zero() -> None:
@@ -63,3 +68,30 @@ def test_unknown_command_exits_nonzero() -> None:
 
     result = runner.invoke(app, ["does-not-exist"])
     assert result.exit_code != 0
+
+
+def test_usage_error_with_json_is_single_json_object() -> None:
+    """``station --json`` ohne Suchbegriff liefert JSON statt Klartext-Usage."""
+
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(REPO / "src")
+    env.pop("FAHRGASTRECHTE_OUTPUT", None)
+    proc = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "fahrgastrechte_cli.main",
+            "station",
+            "--json",
+        ],
+        cwd=REPO,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert proc.returncode == 2, proc.stderr
+    payload = json.loads(proc.stdout)
+    assert payload["exit_code"] == 2
+    assert "suchbegriff" in payload["error"].lower()
+    assert "Traceback" not in proc.stderr

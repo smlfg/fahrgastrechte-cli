@@ -2015,7 +2015,25 @@ def main() -> None:
     """Entry-Point für ``fahrgastrechte``-Konsolen-Skript."""
 
     try:
-        app()
+        # ``standalone_mode=False`` gibt uns die Chance, auch Usage-Fehler
+        # (fehlende Argumente) mit ``--json`` als genau ein JSON-Objekt
+        # auszugeben, statt Klartext auf stderr zu schreiben.
+        result = app(standalone_mode=False)
+    except typer.TyperException as exc:
+        if _wants_json(False) or "--json" in sys.argv[1:]:
+            _emit_json(
+                {
+                    "error": exc.format_message(),
+                    "hint": "`fahrgastrechte --help` zeigt die erwarteten Argumente.",
+                    "exit_code": int(getattr(exc, "exit_code", EXIT_INVALID_INPUT)),
+                }
+            )
+        else:
+            exc.show()
+        raise SystemExit(int(getattr(exc, "exit_code", EXIT_INVALID_INPUT)))
+    except typer.Abort:
+        sys.stderr.write("\nAbgebrochen (Eingabe beendet).\n")
+        raise SystemExit(EXIT_INVALID_INPUT)
     except KeyboardInterrupt:
         sys.stderr.write("\nAbgebrochen (Strg+C).\n")
         raise SystemExit(130)
@@ -2024,6 +2042,8 @@ def main() -> None:
         raise SystemExit(EXIT_INVALID_INPUT)
     except BrokenPipeError:
         raise SystemExit(EXIT_OK)
+    if isinstance(result, int):
+        raise SystemExit(result)
 
 
 if __name__ == "__main__":  # pragma: no cover
